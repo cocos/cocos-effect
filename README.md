@@ -10,6 +10,6 @@ Programmatic language features
 
 ## Release Notes
 
-### 1.0.0
+### 0.0.1
 
-Initial release of Cocos Effect - a simple syntax highlight helper.
+Initial release of Cocos Effect - a simple syntax highlighter.

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Cocos Effect",
+  "scopeName": "source.cocos.effect",
+  "patterns": [
+    {
+      "include": "#cc-effect"
+    },
+    {
+      "include": "source.glsl"
+    }
+  ],
+  "repository": {
+    "line-comment": {
+      "name": "comment.line.double-slash.cocos.effect",
+      "begin": "//",
+      "end": "$",
+      "patterns": []
+    },
+    "block-comment": {
+      "name": "comment.block.cocos.effect",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": []
+    },
+    "cc-effect": {
+      "patterns": [
+        {
+          "contentName": "meta.embedded.yaml",
+          "begin": "(?i:(CCEffect))\\s*%{",
+          "end": "}%",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.type.class.cocos.effect"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.yaml"
+            }
+          ]
+        },
+        {
+          "contentName": "meta.embedded.glsl",
+          "begin": "(?i:(CCProgram))\\s*([-\\w]+)\\s*%{",
+          "end": "}%",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.type.class.cocos.effect"
+            },
+            "2": {
+              "name": "meta.class.cocos.effect"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.glsl"
+            }
+          ]
+        }
+      ]
+    },
+    "glsl": {
+      "patterns": [
+        {
+          "include": "source.glsl"
+        }
+      ]
+    }
+  }
+}

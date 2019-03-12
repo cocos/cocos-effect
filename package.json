@@ -1,0 +1,41 @@
+{
+    "name": "cocos-effect",
+    "displayName": "Cocos Effect",
+    "description": "Cocos effect file syntax support",
+    "version": "0.0.1",
+    "engines": {
+        "vscode": "^1.32.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [
+            {
+                "id": "cocos-effect",
+                "aliases": [
+                    "Cocos Effect",
+                    "effect"
+                ],
+                "extensions": [
+                    ".effect"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "cocos-effect",
+                "scopeName": "source.cocos.effect",
+                "path": "./syntaxes/cocos-effect.tmLanguage.json",
+                "embeddedLanguages": {
+                    "meta.embedded.yaml": "source.yaml",
+                    "meta.embedded.glsl": "source.glsl"
+                }
+            }
+        ]
+    },
+    "devDependencies": {
+        "js-yaml": "^3.12.2"
+    }
+}

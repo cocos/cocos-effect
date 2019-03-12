@@ -2,7 +2,11 @@
 
 ## Features
 
-Provide syntax highlight support for Cocos Effect file for VS Code.
+Provide syntax highlight support for Cocos Effect file in VS Code.
+
+## Requirements
+
+- The [Shader languages support for VS Code](https://marketplace.visualstudio.com/items?itemName=slevesque.shader) extension
 
 ## TODO
 

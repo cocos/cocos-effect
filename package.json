@@ -9,6 +9,9 @@
     "categories": [
         "Programming Languages"
     ],
+    "extensionDependencies": [
+      "slevesque.shader"
+    ],
     "contributes": {
         "languages": [
             {

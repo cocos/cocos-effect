@@ -8,6 +8,8 @@ Provide syntax highlight support for Cocos Effect file in VS Code.
 
 - The [Shader languages support for VS Code](https://marketplace.visualstudio.com/items?itemName=slevesque.shader) extension
 
+![Cocos Effect](./images/code.png)
+
 ## TODO
 
 Programmatic language features
@@ -16,4 +18,4 @@ Programmatic language features
 
 ### 0.0.1
 
-Initial release of Cocos Effect - a simple syntax highlighter.
+Initial release of the Cocos Effect extension - a simple syntax highlighter.

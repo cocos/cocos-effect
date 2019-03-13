@@ -38,6 +38,14 @@
             }
         ]
     },
+    "homepage": "https://github.com/YunHsiao/cocos-effect",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/YunHsiao/cocos-effect.git"
+    },
+    "bugs": {
+        "url": "https://github.com/YunHsiao/cocos-effect/issues"
+    },
     "devDependencies": {
         "js-yaml": "^3.12.2"
     }

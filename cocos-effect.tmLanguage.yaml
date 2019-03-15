@@ -10,16 +10,6 @@ patterns:
 - include: 'source.glsl'
 
 repository:
-  line-comment:
-    name: comment.line.double-slash.cocos.effect
-    begin: //
-    end: $
-    patterns: []
-  block-comment:
-    name: comment.block.cocos.effect
-    begin: /\*
-    end: \*/
-    patterns: []
   cc-effect:
     patterns:
     - contentName: meta.embedded.yaml

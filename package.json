@@ -2,6 +2,7 @@
     "name": "cocos-effect",
     "displayName": "Cocos Effect",
     "description": "Cocos effect file syntax support",
+    "publisher": "Yaji",
     "version": "0.0.1",
     "engines": {
         "vscode": "^1.32.0"

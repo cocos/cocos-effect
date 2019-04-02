@@ -15,8 +15,8 @@
       "patterns": [
         {
           "contentName": "meta.embedded.yaml",
-          "begin": "(?i:(CCEffect))\\s*%{",
-          "end": "}%",
+          "begin": "(CCEffect)\\s*%{",
+          "end": "}%|%}",
           "beginCaptures": {
             "1": {
               "name": "entity.name.type.class.cocos.effect"
@@ -30,8 +30,8 @@
         },
         {
           "contentName": "meta.embedded.glsl",
-          "begin": "(?i:(CCProgram))\\s*([-\\w]+)\\s*%{",
-          "end": "}%",
+          "begin": "(CCProgram)\\s*([\\w-]+)\\s*%{",
+          "end": "}%|%}",
           "beginCaptures": {
             "1": {
               "name": "entity.name.type.class.cocos.effect"
@@ -43,6 +43,11 @@
           "patterns": [
             {
               "include": "source.glsl"
+            },
+            {
+              "begin": "CCEffect|CCProgram",
+              "end": "$",
+              "name": "invalid.illegal.cocos.effect"
             }
           ]
         }

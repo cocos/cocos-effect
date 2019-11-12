@@ -19,3 +19,11 @@ Programmatic language features
 ### 0.0.1
 
 Initial release of the Cocos Effect extension - a simple syntax highlighter.
+
+### 0.1.0
+
+Fix embedded language support, now commends works in different blocks.
+
+### 0.2.0
+
+Add .chunk file to supported extension list.

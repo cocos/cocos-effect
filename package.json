@@ -3,7 +3,8 @@
     "displayName": "Cocos Effect",
     "description": "Cocos effect file syntax support",
     "publisher": "Yaji",
-    "version": "0.2.1",
+    "version": "0.3.0",
+    "icon": "cocos.ico",
     "engines": {
         "vscode": "^1.32.0"
     },

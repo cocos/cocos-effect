@@ -27,3 +27,7 @@ Fix embedded language support, now commends works in different blocks.
 ### 0.2.0
 
 Add .chunk file to supported extension list.
+
+### 0.3.0
+
+Finally we have a logo!

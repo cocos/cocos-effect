@@ -3,7 +3,7 @@
     "displayName": "Cocos Effect",
     "description": "Cocos effect file syntax support",
     "publisher": "Yaji",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "engines": {
         "vscode": "^1.32.0"
     },
@@ -40,13 +40,13 @@
             }
         ]
     },
-    "homepage": "https://github.com/YunHsiao/cocos-effect",
+    "homepage": "https://github.com/cocos-creator/cocos-effect",
     "repository": {
         "type": "git",
-        "url": "https://github.com/YunHsiao/cocos-effect.git"
+        "url": "https://github.com/cocos-creator/cocos-effect.git"
     },
     "bugs": {
-        "url": "https://github.com/YunHsiao/cocos-effect/issues"
+        "url": "https://github.com/cocos-creator/cocos-effect/issues"
     },
     "scripts": {
         "build": "npx js-yaml cocos-effect.tmLanguage.yaml > syntaxes/cocos-effect.tmLanguage.json"

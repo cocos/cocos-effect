@@ -12,7 +12,11 @@
         "Programming Languages"
     ],
     "extensionDependencies": [
-      "slevesque.shader"
+        "slevesque.shader"
+    ],
+    "main": "./client/out/extension",
+    "activationEvents": [
+        "onLanguage:cocos-program"
     ],
     "contributes": {
         "languages": [
@@ -23,23 +27,66 @@
                     "effect"
                 ],
                 "extensions": [
-                    ".effect",
+                    ".effect"
+                ],
+                "configuration": "./effect-configuration.json"
+            },
+            {
+                "id": "cocos-program",
+                "aliases": [
+                    "Cocos Program",
+                    "program"
+                ],
+                "extensions": [
                     ".chunk"
                 ],
-                "configuration": "./language-configuration.json"
+                "configuration": "./program-configuration.json"
             }
         ],
         "grammars": [
+            {
+                "language": "cocos-program",
+                "scopeName": "source.cocos.program",
+                "path": "./syntaxes/cocos-program.tmLanguage.json"
+            },
             {
                 "language": "cocos-effect",
                 "scopeName": "source.cocos.effect",
                 "path": "./syntaxes/cocos-effect.tmLanguage.json",
                 "embeddedLanguages": {
                     "meta.embedded.yaml": "yaml",
-                    "meta.embedded.glsl": "glsl"
+                    "meta.embedded.program": "cocos-program"
                 }
             }
-        ]
+        ],
+        "configuration": {
+            "title": "Cocos Effect",
+            "type": "object",
+            "properties": {
+                "cocos-effect.enginePath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "The default engine path for all cocos effect files"
+                },
+                "cocos-effect.languageServer.maxNumberOfProblems": {
+                    "scope": "resource",
+                    "type": "number",
+                    "default": 100,
+                    "description": "Controls the maximum number of problems produced by the server."
+                },
+                "cocos-effect.languageServer.trace.server": {
+                    "scope": "window",
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Traces the communication between VS Code and the language server."
+                }
+            }
+        }
     },
     "homepage": "https://github.com/cocos-creator/cocos-effect",
     "repository": {
@@ -50,9 +97,21 @@
         "url": "https://github.com/cocos-creator/cocos-effect/issues"
     },
     "scripts": {
-        "build": "npx js-yaml cocos-effect.tmLanguage.yaml > syntaxes/cocos-effect.tmLanguage.json"
+        "build": "npx js-yaml cocos-effect.tmLanguage.yaml > syntaxes/cocos-effect.tmLanguage.json && npx js-yaml cocos-program.tmLanguage.yaml > syntaxes/cocos-program.tmLanguage.json",
+        "compile": "tsc -b",
+        "vscode:prepublish": "npm run compile && npm run build",
+        "lint": "eslint ./client/src ./server/src --ext .ts,.tsx",
+        "watch": "tsc -b -w",
+        "postinstall": "cd client && npm install && cd ../server && npm install && cd .."
     },
     "devDependencies": {
-        "js-yaml": "^3.13.1"
+        "js-yaml": "^3.13.1",
+        "@types/node": "^16.11.7",
+        "@types/vscode": "^1.73.0",
+        "@typescript-eslint/eslint-plugin": "^5.42.0",
+        "@typescript-eslint/parser": "^5.42.0",
+        "eslint": "^8.26.0",
+        "typescript": "^5.0.2",
+        "glsl-tokenizer": "2.1.5"
     }
 }

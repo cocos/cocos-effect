@@ -14,16 +14,200 @@ import {
 	CompletionItemKind,
 	TextDocumentPositionParams,
 	TextDocumentSyncKind,
-	InitializeResult
+	DocumentHighlight,
+	InitializeResult,
+	Hover,
+	ConnectionStrategy
 } from 'vscode-languageserver/node';
 
 import {
-	TextDocument
+	URI
+} from 'vscode-uri';
+
+import {
+	TextDocument,
 } from 'vscode-languageserver-textdocument';
 
-// import { unWindProgram } from './cc-program';
+import * as fs from 'fs';
+import * as path from 'path';
+import { hasSubscribers } from 'diagnostics_channel';
 
-// export interface EffectPrograms 
+const chunkSubPath = '/editor/assets/chunks';
+const chunkCachePath = '/editor/assets/tools/parsed-effect-info.json';
+
+export class EngineCache {
+	enginePath = '';
+	CompletionItems: CompletionItem[] = [];
+	Hovers: Map<string, Hover> = new Map();
+	private _refCount = 0;
+
+	get refCount () {
+		return this._refCount;
+	}
+
+	public ref () {
+		this._refCount++;
+	}
+
+	public unref () {
+		this._refCount--;
+	}
+
+	constructor (enginePath: string, CompletionItems: CompletionItem[], Hovers: Map <string, Hover>) {
+		this.enginePath = enginePath;
+		this.CompletionItems = CompletionItems;
+		this.Hovers = Hovers;
+	}
+}
+
+export class DocumentCache {
+	uri = '';
+	enginePath = '';
+	CompletionItems: CompletionItem[] = [];
+	Hovers: Map<string, Hover> = new Map();
+	constructor (uri: string, enginePath: string, CompletionItems: CompletionItem[], Hovers: Map <string, Hover>) {
+		this.uri = uri;
+		this.enginePath = enginePath;
+		this.CompletionItems = CompletionItems;
+		this.Hovers = Hovers;
+	}
+}
+
+const engineCaches = new Map<string, EngineCache>();
+const documentCaches = new Map<string, DocumentCache>();
+
+/**
+ * find files or directories upwards if the operation returns true
+ * 
+ * @param pth the path to start searching from
+ * @param operation the operation to perform on each path
+ * @returns the path where the operation returned true, or '' if not found
+ */
+export function find_upwards_if(pth: string, operation: (path: string) => boolean): string {
+	let currentDir = pth;
+	if (fs.statSync(pth).isFile()) {
+		currentDir = path.dirname(pth);
+	} else if (fs.statSync(pth).isDirectory()) {
+		currentDir = pth;
+	} else {
+		return '/';
+	}
+
+	let prevDir = '';
+	while (currentDir !== prevDir) {
+		if (operation(currentDir)) {
+			return currentDir;
+		}
+		prevDir = currentDir;
+		currentDir = path.dirname(currentDir);
+	}
+	return '';
+}
+
+
+/**
+ * Check if the path is a cocos creator engine path
+ * 
+ * @param pth the path to check
+ * @returns true if the path is a cocos creator engine path
+ */
+export function is_engine_path(pth: string): boolean {
+	const currentDir = pth;
+	if (pth === '' || !fs.statSync(pth).isDirectory()) {
+		return false;
+	}
+	const pkgJsonPath = path.join(currentDir, 'package.json');
+    if (fs.existsSync(pkgJsonPath)) {
+		const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+		if (pkgJson.name === 'cocos-creator') {
+			return true;
+		}
+    }
+	return false;
+}
+
+/**
+ * Check if the path is a cocos creator project path
+ * 
+ * @param pth the path to check
+ * @returns 
+ */
+export function is_project_path(pth: string): boolean {
+	const currentDir = pth;
+	const ccDtsPath = path.join(currentDir, 'temp', 'declarations', 'cc.d.ts');
+	if (fs.existsSync(ccDtsPath)) {
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Get the engine path from the project path
+ * 
+ * @param projectRoot the path to the project root
+ * @returns the path to the engine directory
+ */
+export function get_project_engine_dir(projectRoot: string): string {
+	const res = '';
+	const ccDtsPath = path.join(projectRoot, 'temp', 'declarations', 'cc.d.ts');
+	if (fs.existsSync(ccDtsPath)) {
+		// read the cc.d.ts file
+		const text = fs.readFileSync(ccDtsPath, 'utf8');
+		// find the line that contains the engine path
+		const referencePathRegExp = /\/\/\/\s*<reference\s+path="([^"]+)"\s*\/>/;
+		const match = referencePathRegExp.exec(text);
+		if (match && match.length > 1) {
+			return match[1];
+		}
+	}
+	return res;
+}
+
+class ParsedInfo {
+	CompletionItems: CompletionItem[] = [];
+	Hovers: Map<string, Hover> = new Map();
+}
+
+/**
+ * Load the parsed-effect-info.json file to get the completion items and hovers
+ * 
+ * @param parsed the path to the parsed-effect-info.json file
+ * @returns the completion items and hovers defined in the cache file
+ */
+export function load_cache_file(parsed: string) : ParsedInfo {
+	const res = new ParsedInfo();
+	const json = JSON.parse(fs.readFileSync(parsed, 'utf8'));
+
+	json.list.forEach((item: any) => {
+		const completionItem = CompletionItem.create(item.name);
+		switch (item.usage) {
+			case 'function':
+				completionItem.kind = CompletionItemKind.Function;
+				res.Hovers.set(item.name, {contents: {language: 'c', value: `${item.type} ${item.name}(${item.args.join(', ')})`}});
+				break;
+			case 'keyword':
+				completionItem.kind = CompletionItemKind.Keyword;
+				break;
+			case 'macro':
+				completionItem.kind = CompletionItemKind.Keyword;
+				res.Hovers.set(item.name, {contents: {language: 'c', value: `macro ${item.name}`}});
+				break;
+			case 'variable':
+				completionItem.kind = CompletionItemKind.Variable;
+				break;
+			default:
+				completionItem.kind = CompletionItemKind.Text;
+				break;
+		}
+		completionItem.documentation = 'Cocos-effect system built-in function or variable.';
+		completionItem.detail = item.type;
+		res.CompletionItems.push(completionItem);
+	});
+
+	return res;
+}
+
+// class interface EffectPrograms 
 // {
 // 	programs: string[];
 // }
@@ -65,7 +249,7 @@ let globalSettings: CocosEffectLanguageServerSettings = defaultSettings;
 // Cache the settings of all open documents
 const documentSettings: Map<string, Thenable<CocosEffectLanguageServerSettings>> = new Map();
 
-let engineDirectory = '';
+const DefaultEngineDirectory = '';
 
 function getDocumentSettings(resource: string): Thenable<CocosEffectLanguageServerSettings> {
 	if (!hasConfigurationCapability) {
@@ -82,6 +266,12 @@ function getDocumentSettings(resource: string): Thenable<CocosEffectLanguageServ
 	return result;
 }
 
+/**
+ * Unwind the program and cache it in the map.
+ * 1. find the #include statement recursively
+ * 2. push all included programs into the map
+ * 3. replace the #include statement with the program content
+ */
 const includeRE = /^(.*)#include\s+[<"]([^>"]+)[>"](.*)$/gm; 
 async function unWindProgram(text: string) : Promise<void> {
 	// TODO (yiwenxue): if the included chunk is not in the map, we need to load it from the file system manually.
@@ -101,73 +291,62 @@ async function unWindProgram(text: string) : Promise<void> {
 	return;
 }
 
-async function query_engine_path() : Promise<string> {
-	if (engineDirectory !== '') {
-		return Promise.resolve(engineDirectory);
-	} else {
-		if (!hasConfigurationCapability) {
-			return Promise.resolve(engineDirectory);
-		}
-		return connection.workspace.getConfiguration({
-			section: 'cocos-effect'
-		}).then((settings) => {
-			engineDirectory = settings.engineDirectory;
-			return engineDirectory;
-		});
-	}
-}
-
 function load_engine_programs() : boolean {
 	// TODO (yiwenxue): load the engine programs from the engine path. if not found, return false, the diagnostics should throw an error.
 	return false;
 }
 
-async function validateTextDocument(textDocument: TextDocument): Promise<void> {
-	// should use glsl validator to validate the shader code.
-	// In this simple example we get the settings for every validate run.
-	const settings = await getDocumentSettings(textDocument.uri);
 
-	// The validator creates diagnostics for all uppercase words length 2 and more
-	const text = textDocument.getText();
-	const pattern = /\b[A-Z]{2,}\b/g;
-	let m: RegExpExecArray | null;
+/**
+ * obtain the engine path for a given document
+ * it will
+ * 1. set the res to the default engine path
+ * 2. search upwards for the engine, if found, set the res to it
+ * 3. search upwards for the project, if found, set the res to the engine that the last time the project was opened
+ * so that the res will be default engine < parent engine < engine that the last time the project was opened
+ **/
+function get_environment_path(document: TextDocument) : string {
+	const uri = URI.parse(document.uri).fsPath;
+	const documentPath = path.dirname(uri);
+	const engine = find_upwards_if(documentPath, is_engine_path);
+	const project = find_upwards_if(documentPath, is_project_path);
+	let engineDir = DefaultEngineDirectory;
 
-	let problems = 0;
-	const diagnostics: Diagnostic[] = [];
-	while ((m = pattern.exec(text)) && problems < settings.maxNumberOfProblems) {
-		problems++;
-		const diagnostic: Diagnostic = {
-			severity: DiagnosticSeverity.Warning,
-			range: {
-				start: textDocument.positionAt(m.index),
-				end: textDocument.positionAt(m.index + m[0].length)
-			},
-			message: `${m[0]} is all uppercase.`,
-			source: 'ex'
-		};
-		if (hasDiagnosticRelatedInformationCapability) {
-			diagnostic.relatedInformation = [
-				{
-					location: {
-						uri: textDocument.uri,
-						range: Object.assign({}, diagnostic.range)
-					},
-					message: 'Spelling matters'
-				},
-				{
-					location: {
-						uri: textDocument.uri,
-						range: Object.assign({}, diagnostic.range)
-					},
-					message: 'Particularly for names'
-				}
-			];
-		}
-		diagnostics.push(diagnostic);
+	if (engine !== '') {
+		engineDir  = engine;
+	} else {
+		connection.console.log('We cannot find the engine path');
+	}
+	
+	if (project !== '') {
+		const engineDts = get_project_engine_dir(project);
+		engineDir = find_upwards_if(engineDts, is_engine_path);
+	} else {
+		connection.console.log('We cannot find the project path');
 	}
 
-	// Send the computed diagnostics to VSCode.
-	connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+	return engineDir;
+}
+
+/**
+ * load cache file from engine path, if path is not valid, do nothing.
+ * if the cache map does not contain the engine path, create a new one.
+ * if the cache map already contains the engine path, update the cache.
+ **/
+function update_engine_cache(engineDir: string) : void {
+	if (!is_engine_path(engineDir)) {
+		return;
+	}
+	const cached_file = path.join(engineDir, chunkCachePath);
+	const parsedInfo = load_cache_file(cached_file);
+	const cache = engineCaches.get(engineDir);
+	if (cache) {
+		cache.CompletionItems = parsedInfo.CompletionItems;
+		cache.Hovers = parsedInfo.Hovers;
+	} else {
+		const engineCache = new EngineCache(engineDir, parsedInfo.CompletionItems, parsedInfo.Hovers);
+		engineCaches.set(engineDir, engineCache);
+	}
 }
 
 connection.onDidChangeConfiguration(change => {
@@ -175,20 +354,11 @@ connection.onDidChangeConfiguration(change => {
 		// Reset all cached document settings
 		documentSettings.clear();
 		// query the engine path
-		connection.workspace.getConfiguration({
-			section: 'cocos-effect'
-		}).then((settings) => {
-			engineDirectory = settings.engineDirectory;
-		});
 	} else {
 		globalSettings = <CocosEffectLanguageServerSettings>(
-			(change.settings['cocos-program'].languageServer || defaultSettings)
+			(change.settings['cocos-effect'].languageServer || defaultSettings)
 		);
-		engineDirectory = '';
 	}
-
-	// Revalidate all open text documents
-	documents.all().forEach(validateTextDocument);
 });
 
 connection.onInitialize((params: InitializeParams) => {
@@ -214,7 +384,10 @@ connection.onInitialize((params: InitializeParams) => {
 			// Tell the client that this server supports code completion.
 			completionProvider: {
 				resolveProvider: true
-			}
+			},
+			hoverProvider: true,
+			definitionProvider: true,
+			documentHighlightProvider: true,
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -223,11 +396,6 @@ connection.onInitialize((params: InitializeParams) => {
 				supported: true
 			}
 		};
-		connection.workspace.getConfiguration({
-			section: 'cocos-effect'
-		}).then((settings) => {
-			engineDirectory = settings.engineDirectory;
-		});
 	}
 
 	return result;
@@ -243,11 +411,29 @@ connection.onInitialized(() => {
 			connection.console.log('Workspace folder change event received.');
 		});
 	}
+	if (hasConfigurationCapability) {
+		// query the engine path
+		connection.workspace.getConfiguration({
+			section: 'cocos-effect'
+		}).then((settings) => {
+			if (is_engine_path(settings.enginePath))
+			{
+				update_engine_cache(settings.enginePath);
+			}
+		});
+	}
 });
 
 documents.onDidOpen(e => {
 	const textDocument = e.document;
 
+	const engineDir = get_environment_path(textDocument);
+
+	// priority: default engine path < parent engine path < engine path in the project
+	documentCaches.set(textDocument.uri, new DocumentCache(textDocument.uri, engineDir, [], new Map()));
+	if (!engineCaches.has(engineDir)) {
+		update_engine_cache(engineDir);
+	}
 	// if this file is in the mapping, we need to remove it
 	const fileRelation = programs.get(textDocument.uri);
 	if (fileRelation) {
@@ -279,6 +465,18 @@ documents.onDidClose(e => {
 			programs.delete(e.document.uri);
 		}
 	}
+	// remove cache
+	const cache = documentCaches.get(e.document.uri);
+	if (cache) {
+		const engineCache = engineCaches.get(cache.enginePath);
+		if (engineCache) {
+			engineCache.unref();
+			if (engineCache.refCount === 0) {
+				engineCaches.delete(cache.enginePath);
+			}
+		}
+		documentCaches.delete(e.document.uri);
+	}
 	connection.console.log('We received an file close event');
 });
 
@@ -288,7 +486,6 @@ documents.onDidChangeContent(change => {
 	// TODO: we need to check if the file is in the mapping
 	const document = change.document;
 	// TODO: we need to check if the changed position is a include statement or not
-	validateTextDocument(document);
 	// update the parsed infos
 	connection.console.log('We received an file change event');
 });
@@ -304,18 +501,18 @@ connection.onDidChangeWatchedFiles(_change => {
 	connection.console.log('We received an file change event');
 });
 
-// This handler provides the initial list of the completion items.
 connection.onCompletion(
 	(_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
-		// the document we are working on
-		// const textDocument = documents.get(_textDocumentPosition.textDocument.uri);
-		// if (textDocument) {
-		// 	const linePrefix = textDocument.getText().substr(0, textDocument.offsetAt(_textDocumentPosition.position));
-		// 	if (!linePrefix.endsWith(' ')) {
-		// 		return [];
-		// 	}
-		// 	// TODO: solve the problem of the completion
-		// }
+		const textDocument = documents.get(_textDocumentPosition.textDocument.uri);
+		if (textDocument) {
+			const cache = documentCaches.get(textDocument.uri);
+			if (!cache) {
+				return [];
+			}
+			const engineCache = engineCaches.get(cache?.enginePath);
+
+			return [cache.CompletionItems, engineCache?.CompletionItems || []].flat();
+		}
 		return [];
 	}
 );
@@ -325,6 +522,69 @@ connection.onCompletion(
 connection.onCompletionResolve(
 	(item: CompletionItem): CompletionItem => {
 		return item;
+	}
+);
+
+/**
+ * get the word at the position of the line using regex
+ * 
+ * @param text line text
+ * @param offset offset of the position
+ * @returns 
+ */
+function getWordAtPosition(text: string, offset: number) : string | undefined {
+	const wordRegex = /\w+/g;
+	let match;
+	while ((match = wordRegex.exec(text)) !== null) {
+		const start = match.index;
+		const end = start + match[0].length;
+		if (start <= offset && offset <= end) {
+			return match[0];
+		}
+	}
+}
+
+connection.onHover(
+	(_textDocumentPosition: TextDocumentPositionParams): Hover | undefined => {
+		const textDocument = documents.get(_textDocumentPosition.textDocument.uri);
+		if (textDocument) {
+			const cache = documentCaches.get(textDocument.uri);
+			if (!cache) {
+				return ;
+			}
+			const engineCache = engineCaches.get(cache?.enginePath);
+			const text = textDocument.getText();
+			const line = text.split('\n')[_textDocumentPosition.position.line];
+			const word = getWordAtPosition(line, _textDocumentPosition.position.character);
+
+			if (!word) {
+				return;
+			}
+
+			let hover = cache.Hovers.get(word);
+			if (hover) {
+				return hover;
+			}
+
+			hover = engineCache?.Hovers.get(word);
+			if (hover) {
+				return hover;
+			}
+
+			return {
+				contents: [
+					{
+						language: 'c',
+						value: word,
+					},]
+			};
+		}
+		return;
+	});
+
+connection.onDocumentHighlight(
+	(_textDocumentPosition: TextDocumentPositionParams): DocumentHighlight[] => {
+		return [];
 	}
 );
 

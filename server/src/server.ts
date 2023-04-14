@@ -5,8 +5,6 @@
 import {
 	createConnection,
 	TextDocuments,
-	Diagnostic,
-	DiagnosticSeverity,
 	ProposedFeatures,
 	InitializeParams,
 	DidChangeConfigurationNotification,
@@ -17,7 +15,7 @@ import {
 	DocumentHighlight,
 	InitializeResult,
 	Hover,
-	ConnectionStrategy
+	SignatureHelp,
 } from 'vscode-languageserver/node';
 
 import {
@@ -26,11 +24,11 @@ import {
 
 import {
 	TextDocument,
+	Range,
 } from 'vscode-languageserver-textdocument';
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { hasSubscribers } from 'diagnostics_channel';
 
 const chunkSubPath = '/editor/assets/chunks';
 const chunkCachePath = '/editor/assets/tools/parsed-effect-info.json';
@@ -38,24 +36,26 @@ const chunkCachePath = '/editor/assets/tools/parsed-effect-info.json';
 export class EngineCache {
 	enginePath = '';
 	CompletionItems: CompletionItem[] = [];
+	SignatureHelps: Map<string, SignatureHelp> = new Map();
 	Hovers: Map<string, Hover> = new Map();
 	private _refCount = 0;
 
-	get refCount () {
+	get refCount() {
 		return this._refCount;
 	}
 
-	public ref () {
+	public ref() {
 		this._refCount++;
 	}
 
-	public unref () {
+	public unref() {
 		this._refCount--;
 	}
 
-	constructor (enginePath: string, CompletionItems: CompletionItem[], Hovers: Map <string, Hover>) {
+	constructor(enginePath: string, CompletionItems: CompletionItem[] = [], SignatureHelps: Map<string, SignatureHelp> = new Map(), Hovers: Map<string, Hover> = new Map()) {
 		this.enginePath = enginePath;
 		this.CompletionItems = CompletionItems;
+		this.SignatureHelps = SignatureHelps;
 		this.Hovers = Hovers;
 	}
 }
@@ -64,13 +64,23 @@ export class DocumentCache {
 	uri = '';
 	enginePath = '';
 	CompletionItems: CompletionItem[] = [];
+	HighlightItems: DocumentHighlight[] = [];
+	SignatureHelps: Map<string, SignatureHelp> = new Map();
 	Hovers: Map<string, Hover> = new Map();
-	constructor (uri: string, enginePath: string, CompletionItems: CompletionItem[], Hovers: Map <string, Hover>) {
+	constructor(uri: string, enginePath: string, CompletionItems: CompletionItem[] = [], SignatureHelps: Map<string, SignatureHelp> = new Map(), Hovers: Map<string, Hover> = new Map()) {
 		this.uri = uri;
 		this.enginePath = enginePath;
 		this.CompletionItems = CompletionItems;
+		this.SignatureHelps = SignatureHelps;
 		this.Hovers = Hovers;
 	}
+}
+
+class ParsedInfo {
+	CompletionItems: CompletionItem[] = [];
+	HighlightItems: DocumentHighlight[] = [];
+	SignatureHelps: Map<string, SignatureHelp> = new Map();
+	Hovers: Map<string, Hover> = new Map();
 }
 
 const engineCaches = new Map<string, EngineCache>();
@@ -117,12 +127,12 @@ export function is_engine_path(pth: string): boolean {
 		return false;
 	}
 	const pkgJsonPath = path.join(currentDir, 'package.json');
-    if (fs.existsSync(pkgJsonPath)) {
+	if (fs.existsSync(pkgJsonPath)) {
 		const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
 		if (pkgJson.name === 'cocos-creator') {
 			return true;
 		}
-    }
+	}
 	return false;
 }
 
@@ -163,34 +173,44 @@ export function get_project_engine_dir(projectRoot: string): string {
 	return res;
 }
 
-class ParsedInfo {
-	CompletionItems: CompletionItem[] = [];
-	Hovers: Map<string, Hover> = new Map();
-}
-
 /**
  * Load the parsed-effect-info.json file to get the completion items and hovers
  * 
  * @param parsed the path to the parsed-effect-info.json file
  * @returns the completion items and hovers defined in the cache file
  */
-export function load_cache_file(parsed: string) : ParsedInfo {
+export function load_cache_file(parsed: string): ParsedInfo {
 	const res = new ParsedInfo();
 	const json = JSON.parse(fs.readFileSync(parsed, 'utf8'));
 
 	json.list.forEach((item: any) => {
 		const completionItem = CompletionItem.create(item.name);
+		completionItem.documentation = item.comment || 'Cocos-effect system built-in function or variable.';
+		completionItem.detail = item.type;
 		switch (item.usage) {
 			case 'function':
+				completionItem.detail = `${item.type} ${item.name}(${item.args.join(', ')})`;
 				completionItem.kind = CompletionItemKind.Function;
-				res.Hovers.set(item.name, {contents: {language: 'c', value: `${item.type} ${item.name}(${item.args.join(', ')})`}});
+				res.Hovers.set(item.name, { contents: { language: 'c', value: `${item.type} ${item.name}(${item.args.join(', ')})` } });
+				res.SignatureHelps.set(item.name,
+					{
+						signatures:
+							[
+								{
+									label: `${item.type} ${item.name}(${item.args.join(', ')})`,
+									parameters: item.args.map((arg: string) => { return { label: arg, documentation: '' }; }),
+								},
+							],
+						activeSignature: 0,
+						activeParameter: 0,
+					});
 				break;
 			case 'keyword':
 				completionItem.kind = CompletionItemKind.Keyword;
 				break;
 			case 'macro':
 				completionItem.kind = CompletionItemKind.Keyword;
-				res.Hovers.set(item.name, {contents: {language: 'c', value: `macro ${item.name}`}});
+				res.Hovers.set(item.name, { contents: { language: 'c', value: `macro ${item.name}` } });
 				break;
 			case 'variable':
 				completionItem.kind = CompletionItemKind.Variable;
@@ -199,8 +219,6 @@ export function load_cache_file(parsed: string) : ParsedInfo {
 				completionItem.kind = CompletionItemKind.Text;
 				break;
 		}
-		completionItem.documentation = 'Cocos-effect system built-in function or variable.';
-		completionItem.detail = item.type;
 		res.CompletionItems.push(completionItem);
 	});
 
@@ -272,8 +290,8 @@ function getDocumentSettings(resource: string): Thenable<CocosEffectLanguageServ
  * 2. push all included programs into the map
  * 3. replace the #include statement with the program content
  */
-const includeRE = /^(.*)#include\s+[<"]([^>"]+)[>"](.*)$/gm; 
-async function unWindProgram(text: string) : Promise<void> {
+const includeRE = /^(.*)#include\s+[<"]([^>"]+)[>"](.*)$/gm;
+async function unWindProgram(text: string): Promise<void> {
 	// TODO (yiwenxue): if the included chunk is not in the map, we need to load it from the file system manually.
 	let header = includeRE.exec(text);
 	while (header) {
@@ -291,7 +309,7 @@ async function unWindProgram(text: string) : Promise<void> {
 	return;
 }
 
-function load_engine_programs() : boolean {
+function load_engine_programs(): boolean {
 	// TODO (yiwenxue): load the engine programs from the engine path. if not found, return false, the diagnostics should throw an error.
 	return false;
 }
@@ -305,7 +323,7 @@ function load_engine_programs() : boolean {
  * 3. search upwards for the project, if found, set the res to the engine that the last time the project was opened
  * so that the res will be default engine < parent engine < engine that the last time the project was opened
  **/
-function get_environment_path(document: TextDocument) : string {
+function get_environment_path(document: TextDocument): string {
 	const uri = URI.parse(document.uri).fsPath;
 	const documentPath = path.dirname(uri);
 	const engine = find_upwards_if(documentPath, is_engine_path);
@@ -313,16 +331,11 @@ function get_environment_path(document: TextDocument) : string {
 	let engineDir = DefaultEngineDirectory;
 
 	if (engine !== '') {
-		engineDir  = engine;
-	} else {
-		connection.console.log('We cannot find the engine path');
+		engineDir = engine;
 	}
-	
 	if (project !== '') {
 		const engineDts = get_project_engine_dir(project);
 		engineDir = find_upwards_if(engineDts, is_engine_path);
-	} else {
-		connection.console.log('We cannot find the project path');
 	}
 
 	return engineDir;
@@ -333,7 +346,7 @@ function get_environment_path(document: TextDocument) : string {
  * if the cache map does not contain the engine path, create a new one.
  * if the cache map already contains the engine path, update the cache.
  **/
-function update_engine_cache(engineDir: string) : void {
+function update_engine_cache(engineDir: string): void {
 	if (!is_engine_path(engineDir)) {
 		return;
 	}
@@ -343,8 +356,9 @@ function update_engine_cache(engineDir: string) : void {
 	if (cache) {
 		cache.CompletionItems = parsedInfo.CompletionItems;
 		cache.Hovers = parsedInfo.Hovers;
+		cache.SignatureHelps = parsedInfo.SignatureHelps;
 	} else {
-		const engineCache = new EngineCache(engineDir, parsedInfo.CompletionItems, parsedInfo.Hovers);
+		const engineCache = new EngineCache(engineDir, parsedInfo.CompletionItems, parsedInfo.SignatureHelps, parsedInfo.Hovers);
 		engineCaches.set(engineDir, engineCache);
 	}
 }
@@ -363,31 +377,28 @@ connection.onDidChangeConfiguration(change => {
 
 connection.onInitialize((params: InitializeParams) => {
 	const capabilities = params.capabilities;
-	
-	// Does the client support the `workspace/configuration` request?
-	// If not, we fall back using global settings.
 	hasConfigurationCapability = !!(
 		capabilities.workspace && !!capabilities.workspace.configuration
 	);
 	hasWorkspaceFolderCapability = !!(
 		capabilities.workspace && !!capabilities.workspace.workspaceFolders
-		);
-		hasDiagnosticRelatedInformationCapability = !!(
-			capabilities.textDocument &&
-			capabilities.textDocument.publishDiagnostics &&
-			capabilities.textDocument.publishDiagnostics.relatedInformation
-			);
-			
-			const result: InitializeResult = {
+	);
+	hasDiagnosticRelatedInformationCapability = !!(
+		capabilities.textDocument &&
+		capabilities.textDocument.publishDiagnostics &&
+		capabilities.textDocument.publishDiagnostics.relatedInformation
+	);
+
+	const result: InitializeResult = {
 		capabilities: {
 			textDocumentSync: TextDocumentSyncKind.Incremental,
-			// Tell the client that this server supports code completion.
 			completionProvider: {
 				resolveProvider: true
 			},
 			hoverProvider: true,
-			definitionProvider: true,
-			documentHighlightProvider: true,
+			signatureHelpProvider: {
+				triggerCharacters: ['(',]
+			},
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -403,7 +414,6 @@ connection.onInitialize((params: InitializeParams) => {
 
 connection.onInitialized(() => {
 	if (hasConfigurationCapability) {
-		// Register for all configuration changes.
 		connection.client.register(DidChangeConfigurationNotification.type, undefined);
 	}
 	if (hasWorkspaceFolderCapability) {
@@ -412,12 +422,10 @@ connection.onInitialized(() => {
 		});
 	}
 	if (hasConfigurationCapability) {
-		// query the engine path
 		connection.workspace.getConfiguration({
 			section: 'cocos-effect'
 		}).then((settings) => {
-			if (is_engine_path(settings.enginePath))
-			{
+			if (is_engine_path(settings.enginePath)) {
 				update_engine_cache(settings.enginePath);
 			}
 		});
@@ -430,11 +438,11 @@ documents.onDidOpen(e => {
 	const engineDir = get_environment_path(textDocument);
 
 	// priority: default engine path < parent engine path < engine path in the project
-	documentCaches.set(textDocument.uri, new DocumentCache(textDocument.uri, engineDir, [], new Map()));
+	documentCaches.set(textDocument.uri, new DocumentCache(textDocument.uri, engineDir));
 	if (!engineCaches.has(engineDir)) {
 		update_engine_cache(engineDir);
 	}
-	// if this file is in the mapping, we need to remove it
+
 	const fileRelation = programs.get(textDocument.uri);
 	if (fileRelation) {
 		programs.delete(textDocument.uri);
@@ -442,9 +450,8 @@ documents.onDidOpen(e => {
 	}
 	programs.set(textDocument.uri, new ProgramRelations());
 	// unwind to obtain the relations
-	unWindProgram(textDocument.getText());
+	// unWindProgram(textDocument.getText());
 	// better obtain the parsed info also
-	connection.console.log('We received an file open event');
 });
 
 // Only keep settings for open documents
@@ -477,29 +484,23 @@ documents.onDidClose(e => {
 		}
 		documentCaches.delete(e.document.uri);
 	}
-	connection.console.log('We received an file close event');
 });
 
-// The content of a text document has changed. This event is emitted
-// when the text document first opened or when its content has changed.
-documents.onDidChangeContent(change => {
-	// TODO: we need to check if the file is in the mapping
-	const document = change.document;
-	// TODO: we need to check if the changed position is a include statement or not
-	// update the parsed infos
-	connection.console.log('We received an file change event');
-});
+// documents.onDidChangeContent(change => {
+// 	// TODO: we need to check if the file is in the mapping
+// 	const document = change.document;
+// 	// TODO: we need to check if the changed position is a include statement or not
+// 	// update the parsed infos
+// });
 
-documents.onDidSave(change => {
-	// unwind to obtain the relations
-	unWindProgram(change.document.getText());
-	connection.console.log('We received an file save event');
-});
+// documents.onDidSave(change => {
+// 	// unwind to obtain the relations
+// 	// unWindProgram(change.document.getText());
+// });
 
-connection.onDidChangeWatchedFiles(_change => {
-	// Monitored files have change in VSCode
-	connection.console.log('We received an file change event');
-});
+// connection.onDidChangeWatchedFiles(_change => {
+// 	// 
+// });
 
 connection.onCompletion(
 	(_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
@@ -510,7 +511,6 @@ connection.onCompletion(
 				return [];
 			}
 			const engineCache = engineCaches.get(cache?.enginePath);
-
 			return [cache.CompletionItems, engineCache?.CompletionItems || []].flat();
 		}
 		return [];
@@ -532,7 +532,7 @@ connection.onCompletionResolve(
  * @param offset offset of the position
  * @returns 
  */
-function getWordAtPosition(text: string, offset: number) : string | undefined {
+function getWordAtPosition(text: string, offset: number): string | undefined {
 	const wordRegex = /\w+/g;
 	let match;
 	while ((match = wordRegex.exec(text)) !== null) {
@@ -544,13 +544,32 @@ function getWordAtPosition(text: string, offset: number) : string | undefined {
 	}
 }
 
+function getFunctionRanges(textDocument: TextDocument): Range[] {
+	const text = textDocument.getText();
+	const functionRegex = /(\S+)\s+(\w+)\s*\(([^)]*)\)\s*\{([^}]*)\}/g;
+	let match;
+	const ranges: Range[] = [];
+	while ((match = functionRegex.exec(text)) !== null) {
+		const start = match.index + match[0].indexOf(match[1]);
+		const end = start + match[1].length;
+		connection.console.log(`function name: ${match[1]}`);
+		ranges.push(
+			{
+				start: textDocument.positionAt(start),
+				end: textDocument.positionAt(end)
+			}
+		);
+	}
+	return ranges;
+}
+
 connection.onHover(
 	(_textDocumentPosition: TextDocumentPositionParams): Hover | undefined => {
 		const textDocument = documents.get(_textDocumentPosition.textDocument.uri);
 		if (textDocument) {
 			const cache = documentCaches.get(textDocument.uri);
 			if (!cache) {
-				return ;
+				return;
 			}
 			const engineCache = engineCaches.get(cache?.enginePath);
 			const text = textDocument.getText();
@@ -582,15 +601,38 @@ connection.onHover(
 		return;
 	});
 
-connection.onDocumentHighlight(
-	(_textDocumentPosition: TextDocumentPositionParams): DocumentHighlight[] => {
-		return [];
-	}
-);
+connection.onSignatureHelp(
+	(_textDocumentPosition: TextDocumentPositionParams): SignatureHelp | undefined => {
+		const textDocument = documents.get(_textDocumentPosition.textDocument.uri);
+		if (textDocument) {
+			const cache = documentCaches.get(textDocument.uri);
+			if (!cache) {
+				return;
+			}
+			const engineCache = engineCaches.get(cache?.enginePath);
+			const text = textDocument.getText();
+			const line = text.split('\n')[_textDocumentPosition.position.line];
+			const word = getWordAtPosition(line, _textDocumentPosition.position.character - 2);
 
-// Make the text document manager listen on the connection
-// for open, change and close text document events
+			connection.console.log(`signature help for ${word}`);
+
+			if (!word) {
+				return;
+			}
+
+			let signatureHelp = cache.SignatureHelps.get(word);
+			if (signatureHelp) {
+				return signatureHelp;
+			}
+
+			signatureHelp = engineCache?.SignatureHelps.get(word);
+			if (signatureHelp) {
+				return signatureHelp;
+			}
+		}
+		return;
+	});
+
 documents.listen(connection);
 
-// Listen on the connection
 connection.listen();

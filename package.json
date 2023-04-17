@@ -16,7 +16,11 @@
     ],
     "main": "./client/out/extension",
     "activationEvents": [
-        "onLanguage:cocos-program"
+        "onLanguage:cocos-program",
+        "onLanguage:cocos-effect",
+        "onCommand:CocosEffect.activateLSP",
+        "onCommand:CocosEffect.restartLSP",
+        "onCommand:CocosEffect.compileEffect"
     ],
     "contributes": {
         "languages": [
@@ -59,6 +63,36 @@
                 }
             }
         ],
+        "menus": {
+            "commandPalette": [
+                {
+                    "command": "CocosEffect.activateLSP",
+                    "when": "editorLangId == cocos-effect || editorLangId == cocos-program"
+                },
+                {
+                    "command": "CocosEffect.restartLSP",
+                    "when": "editorLangId == cocos-effect || editorLangId == cocos-program"
+                },
+                {
+                    "command": "CocosEffect.compileEffect",
+                    "when": "editorLangId == cocos-effect || editorLangId == cocos-program"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "CocosEffect.activateLSP",
+                "title": "CocosEffect: activate language server"
+            },
+            {
+                "command": "CocosEffect.restartLSP",
+                "title": "CocosEffect: restart language server"
+            },
+            {
+                "command": "CocosEffect.compileEffect",
+                "title": "CocosEffect: compile effect"
+            }
+        ],
         "configuration": {
             "title": "Cocos Effect",
             "type": "object",
@@ -66,7 +100,7 @@
                 "cocos-effect.enginePath": {
                     "type": "string",
                     "default": "",
-                    "description": "The default engine path for all cocos effect files"
+                    "description": "Path to the default Engine (or Cocos Creator)"
                 },
                 "cocos-effect.languageServer.maxNumberOfProblems": {
                     "scope": "resource",
@@ -86,7 +120,19 @@
                     "description": "Traces the communication between VS Code and the language server."
                 }
             }
-        }
+        },
+        "tasks": [
+            {
+                "label": "Compile Cocos Effect",
+                "type": "shell",
+                "command": "${cmd}",
+                "args": [
+                    "0",
+                    "${file}",
+                    "${editor}"
+                ]
+            }
+        ]
     },
     "homepage": "https://github.com/cocos-creator/cocos-effect",
     "repository": {

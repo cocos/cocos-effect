@@ -7,7 +7,6 @@ scopeName: source.cocos.effect
 
 patterns:
 - include: '#cc-effect'
-- include: 'source.glsl'
 
 repository:
   cc-effect:
@@ -19,14 +18,14 @@ repository:
         '1': { name: entity.name.type.class.cocos.effect }
       patterns:
       - include: source.yaml
-    - contentName: meta.embedded.glsl
+    - contentName: meta.embedded.program
       begin: (CCProgram)\s*([\w-]+)\s*%{
       end: '}%|%}'
       beginCaptures:
         '1': { name: entity.name.type.class.cocos.effect }
         '2': { name: meta.class.cocos.effect }
       patterns:
-      - include: source.glsl
+      - include: source.cocos.program
       - begin: CCEffect|CCProgram
         end: $
         name: invalid.illegal.cocos.effect

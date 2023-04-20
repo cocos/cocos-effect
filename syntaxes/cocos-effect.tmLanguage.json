@@ -5,9 +5,6 @@
   "patterns": [
     {
       "include": "#cc-effect"
-    },
-    {
-      "include": "source.glsl"
     }
   ],
   "repository": {
@@ -29,7 +26,7 @@
           ]
         },
         {
-          "contentName": "meta.embedded.glsl",
+          "contentName": "meta.embedded.program",
           "begin": "(CCProgram)\\s*([\\w-]+)\\s*%{",
           "end": "}%|%}",
           "beginCaptures": {
@@ -42,7 +39,7 @@
           },
           "patterns": [
             {
-              "include": "source.glsl"
+              "include": "source.cocos.program"
             },
             {
               "begin": "CCEffect|CCProgram",

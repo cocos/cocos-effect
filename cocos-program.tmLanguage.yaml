@@ -1,0 +1,17 @@
+# [PackageDev] target_format: plist, ext: tmLanguage
+---
+$schema: https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json
+
+name: Cocos Program
+scopeName: source.cocos.program
+
+patterns:
+- include: '#cc-program'
+
+repository:
+  cc-program:
+    patterns:
+    - include: "source.glsl"
+    program-keywords:
+      match: "define-meta|rate|pass|phase|include"
+      name: "program-keywords"

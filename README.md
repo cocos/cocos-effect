@@ -2,7 +2,10 @@
 
 ## Features
 
-Provide syntax highlight support for Cocos Effect file in VS Code.
+1. Provide syntax/semantics highlight support for Cocos Effect file in VS Code.
+2. Provide auto-completion support for Cocos Effect file in VS Code.
+3. Provide hover support for Cocos Effect file in VS Code.
+4. Provide Signature Help support for Cocos Effect file in VS Code.
 
 ## Requirements
 
@@ -10,9 +13,9 @@ Provide syntax highlight support for Cocos Effect file in VS Code.
 
 ![Cocos Effect](./images/code.png)
 
-## TODO
+## Documentation
 
-Programmatic language features
+[Cocos Creator User Manual](https://docs.cocos.com/creator/manual/)
 
 ## Release Notes
 
@@ -31,3 +34,7 @@ Add .chunk file to supported extension list.
 ### 0.3.0
 
 Finally we have a logo!
+
+### 0.4.0
+
+Add semantic highlighter, language server.

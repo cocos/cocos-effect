@@ -7,7 +7,6 @@ import {
 	SemanticTokens,
 	SemanticTokensBuilder,
 	Range,
-	OutputChannel,
 } from 'vscode';
 
 const tokenTypes = ['macro', 'keyword', 'enum', 'function', 'variable'];
@@ -126,23 +125,13 @@ interface IParsedToken {
 	tokenModifiers: string[];
 }
 
-interface IProgramRange {
-	start: number;
-	end: number;
-}
-
 export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvider {
-	private _outputChannel: OutputChannel;
-	constructor(outputChannel: OutputChannel) {
-		this._outputChannel = outputChannel;
-	}
 	provideDocumentSemanticTokens(
 		document: TextDocument,
 		token: CancellationToken
 	): ProviderResult<SemanticTokens> {
 		const allTokens = this.parse(document);
 		const tokensBuilder = new SemanticTokensBuilder(legend);
-		this._outputChannel.appendLine(`provideDocumentSemanticTokens: ${allTokens.length}`);
 		allTokens.forEach((token) => {
 			tokensBuilder.push(
 				token.line,
@@ -157,7 +146,6 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
 
 	private parse(document: TextDocument): IParsedToken[] {
 		const program_ranges = this.parsePrograms(document);
-		this._outputChannel.appendLine(`parsePrograms: ${program_ranges.length}`);
 		const allTokens: IParsedToken[] = [];
 		program_ranges.forEach((range) => {
 			allTokens.push(...this.parseTokens(document, range));
@@ -201,9 +189,7 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
 
 	private parseTokens(document: TextDocument, range: Range): IParsedToken[] {
 		const start = document.offsetAt(range.start);
-		this._outputChannel.appendLine(`parseTokensStart: ${start}`);
 		const text = document.getText(range);
-		this._outputChannel.append(`${text}`);
 		const res = [];
 		const functionRegex = /(\w+)\s*\(([^)]*)\)/g;
 		const precompileRegex = /^#(.*)$/gm;

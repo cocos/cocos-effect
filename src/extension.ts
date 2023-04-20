@@ -35,8 +35,8 @@ export async function activate(context: ExtensionContext) {
 	const cocosEffectContext = new CocosEffectContext();
 	context.subscriptions.push(cocosEffectContext);
 
-	languages.registerDocumentSemanticTokensProvider({ language: 'cocos-effect' }, new CocosSemanticTokensProvider(outputChannel), legend);
-	languages.registerDocumentSemanticTokensProvider({ language: 'cocos-program' }, new CocosSemanticTokensProvider(outputChannel), legend);
+	languages.registerDocumentSemanticTokensProvider({ language: 'cocos-effect' }, new CocosSemanticTokensProvider(), legend);
+	languages.registerDocumentSemanticTokensProvider({ language: 'cocos-program' }, new CocosSemanticTokensProvider(), legend);
 
 	const serverModule = context.asAbsolutePath(path.join('out', 'server.js'));
 

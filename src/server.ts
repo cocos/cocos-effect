@@ -17,9 +17,15 @@ import {
 } from 'vscode-languageserver-textdocument';
 
 import {
+	find_if_upwards,
 	is_engine_path,
 	is_cocos_creator_path,
 	get_creator_engine_path,
+	is_project_path,
+	get_project_engine_dir,
+} from './file-utils';
+
+import {
 	DocumentCache,
 	documentCaches,
 	engineCaches,
@@ -32,7 +38,7 @@ import {
 	hoverProvider,
 	completionResolver,
 	completionProvider,
-} from './cc-program';
+} from './cc-utils';
 
 export let DefaultEngineDirectory = '';
 

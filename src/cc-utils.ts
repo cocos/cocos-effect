@@ -1,4 +1,3 @@
-
 import {
 	CompletionItem,
 	CompletionItemKind,
@@ -12,131 +11,44 @@ import {
 	// EffectPrograms,
 	DefaultEngineDirectory, documents,
 } from './server';
+import { URI } from 'vscode-uri';
+
+import {
+	find_if_upwards,
+	is_engine_path,
+	is_project_path,
+	get_project_engine_dir,
+	chunkCachePath,
+} from './file-utils';
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { URI } from 'vscode-uri';
 import { Range } from 'vscode-languageserver-textdocument';
 
-export const chunkSubPath = '/editor/assets/chunks';
-export const chunkCachePath = '/editor/assets/tools/parsed-effect-info.json';
-
 /**
- * find files or directories upwards if the operation returns true
- * 
- * @param pth the path to start searching from
- * @param operation the operation to perform on each path
- * @returns the path where the operation returned true, or '' if not found
- */
-export function find_upwards_if(pth: string, operation: (path: string) => boolean): string {
-	let currentDir = pth;
-	if (fs.statSync(pth).isFile()) {
-		currentDir = path.dirname(pth);
-	} else if (fs.statSync(pth).isDirectory()) {
-		currentDir = pth;
-	} else {
-		return '/';
+ * obtain the engine path for a given document
+ * it will
+ * 1. set the res to the default engine path
+ * 2. search upwards for the engine, if found, set the res to it
+ * 3. search upwards for the project, if found, set the res to the engine that the last time the project was opened
+ * so that the res will be default engine < parent engine < engine that the last time the project was opened
+ **/
+export function get_environment_path(document: TextDocument): string {
+	const uri = URI.parse(document.uri).fsPath;
+	const documentPath = path.dirname(uri);
+	const engine = find_if_upwards(documentPath, is_engine_path);
+	const project = find_if_upwards(documentPath, is_project_path);
+	let engineDir = DefaultEngineDirectory;
+
+	if (engine !== '') {
+		engineDir = engine;
+	}
+	if (project !== '') {
+		const engineDts = get_project_engine_dir(project);
+		engineDir = find_if_upwards(engineDts, is_engine_path);
 	}
 
-	let prevDir = '';
-	while (currentDir !== prevDir) {
-		if (operation(currentDir)) {
-			return currentDir;
-		}
-		prevDir = currentDir;
-		currentDir = path.dirname(currentDir);
-	}
-	return '';
-}
-
-/**
- * Check if the path is a cocos creator engine path
- * 
- * @param pth the path to check
- * @returns true if the path is a cocos creator engine path
- */
-export function is_engine_path(pth: string): boolean {
-	const currentDir = pth;
-	if (pth === '' || !fs.existsSync(pth) || !fs.statSync(pth).isDirectory()) {
-		return false;
-	}
-	const pkgJsonPath = path.join(currentDir, 'package.json');
-	if (fs.existsSync(pkgJsonPath)) {
-		const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-		if (pkgJson.name === 'cocos-creator') {
-			return true;
-		}
-	}
-	return false;
-}
-
-/**
- * Check if the path is a cocos creator path
- */
-export function is_cocos_creator_path(pth: string): boolean {
-	if (pth === '' || !fs.existsSync(pth) || !fs.statSync(pth).isDirectory()) {
-		return false;
-	}
-	const engine_path = path.join(pth, 'resources', 'resources', '3d', 'engine');
-	const mac_engine_path = path.join(pth, 'Contents', 'Resources', 'resources', '3d', 'engine');
-	const develop_engine_path = path.join(pth, 'resources', '3d', 'engine');
-	return is_engine_path(develop_engine_path) || is_engine_path(engine_path) || is_engine_path(mac_engine_path);
-}
-
-/**
- * Check if the path is a cocos creator project path
- * 
- * @param pth the path to check
- * @returns 
- */
-export function is_project_path(pth: string): boolean {
-	const currentDir = pth;
-	const ccDtsPath = path.join(currentDir, 'temp', 'declarations', 'cc.d.ts');
-	if (fs.existsSync(ccDtsPath)) {
-		return true;
-	}
-	return false;
-}
-
-/**
- * Get the engine path from the project path
- * 
- * @param projectRoot the path to the project root
- * @returns the path to the engine directory
- */
-export function get_project_engine_dir(projectRoot: string): string {
-	const ccDtsPath = path.join(projectRoot, 'temp', 'declarations', 'cc.d.ts');
-	if (fs.existsSync(ccDtsPath)) {
-		// read the cc.d.ts file
-		const text = fs.readFileSync(ccDtsPath, 'utf8');
-		// find the line that contains the engine path
-		const referencePathRegExp = /\/\/\/\s*<reference\s+path="([^"]+)"\s*\/>/;
-		const match = referencePathRegExp.exec(text);
-		if (match && match.length > 1) {
-			return match[1];
-		}
-	}
-	return '';
-}
-
-/**
- * Get the engine path from the creator path
- * 
- * @param creatorPath the path to the creator root
- * @returns the path to the engine directory
- */
-export function get_creator_engine_path(creatorPath: string): string {
-	const engine_path = path.join(creatorPath, 'resources', 'resources', '3d', 'engine');
-	const mac_engine_path = path.join(creatorPath, 'Contents', 'Resources', 'resources', '3d', 'engine');
-	const develop_engine_path = path.join(creatorPath, 'resources', '3d', 'engine');
-	if (is_engine_path(develop_engine_path)) { // dev editor
-		return develop_engine_path;
-	} else if (is_engine_path(engine_path)) { // released editor on windows
-		return engine_path;
-	} else if (is_engine_path(mac_engine_path)) { // released editor on mac
-		return mac_engine_path;
-	}
-	return '';
+	return engineDir;
 }
 
 export class EngineCache {
@@ -207,53 +119,43 @@ export function load_cache_file(parsed: string): ParsedInfo {
 
 	json.list.forEach((item: any) => {
 		const completionItem = CompletionItem.create(item.name);
-		completionItem.documentation = item.comment || 'Cocos-effect system built-in function or variable.';
+		completionItem.documentation = item.comment || `Cocos-effect system built-in ${item.usage}.`;
 		completionItem.detail = item.type;
+		res.Hovers.set(item.name, {
+			contents: [
+				{
+					language: 'c',
+					value: `${item.type} ${item.name}(${item.args.join(', ')})`
+				},
+				{
+					language: 'markdown',
+					value: `# comments \n${item.comment || `Cocos-effect system built-in ${item.usage}.`}`
+				},
+				{
+					language: 'markdown',
+					value: item.file ? `# defined in\n${item.file}: l${item.line}, c${item.column}` : '# intrinsic function'
+				}
+			]
+		});
+
 		switch (item.usage) {
 			case 'function':
 				completionItem.detail = `${item.type} ${item.name}(${item.args.join(', ')})`;
 				completionItem.kind = CompletionItemKind.Function;
-				res.Hovers.set(item.name, {
-					contents: [
-						{
-							language: 'c',
-							value: `${item.type} ${item.name}(${item.args.join(', ')})`
-						},
-						{
-							language: 'markdown',
-							value: `# comments \n${item.comment || 'Cocos-effect system built-in function or variable.'}`
-						},
-						{
-							language: 'markdown',
-							value: item.file ? `# defined in\n${item.file}: l${item.line}, c${item.column}` : '# intrinsic function'
-						}
-					]
-				});
-				res.SignatureHelps.set(item.name,
-					{
-						signatures:
-							[
-								{
-									label: `${item.type} ${item.name}(${item.args.join(', ')})`,
-									parameters: item.args.map((arg: string) => { return { label: arg, documentation: '' }; }),
-								},
-							],
-						activeSignature: 0,
-						activeParameter: 0,
-					});
 				break;
 			case 'keyword':
 				completionItem.kind = CompletionItemKind.Keyword;
+				res.Hovers.delete(item.name);
 				break;
 			case 'macro':
 				completionItem.kind = CompletionItemKind.Keyword;
-				res.Hovers.set(item.name, { contents: { language: 'c', value: `macro ${item.name}` } });
 				break;
 			case 'variable':
 				completionItem.kind = CompletionItemKind.Variable;
 				break;
 			default:
 				completionItem.kind = CompletionItemKind.Text;
+				res.Hovers.delete(item.name);
 				break;
 		}
 		res.CompletionItems.push(completionItem);
@@ -298,32 +200,6 @@ export function load_engine_programs(): boolean {
 }
 
 /**
- * obtain the engine path for a given document
- * it will
- * 1. set the res to the default engine path
- * 2. search upwards for the engine, if found, set the res to it
- * 3. search upwards for the project, if found, set the res to the engine that the last time the project was opened
- * so that the res will be default engine < parent engine < engine that the last time the project was opened
- **/
-export function get_environment_path(document: TextDocument): string {
-	const uri = URI.parse(document.uri).fsPath;
-	const documentPath = path.dirname(uri);
-	const engine = find_upwards_if(documentPath, is_engine_path);
-	const project = find_upwards_if(documentPath, is_project_path);
-	let engineDir = DefaultEngineDirectory;
-
-	if (engine !== '') {
-		engineDir = engine;
-	}
-	if (project !== '') {
-		const engineDts = get_project_engine_dir(project);
-		engineDir = find_upwards_if(engineDts, is_engine_path);
-	}
-
-	return engineDir;
-}
-
-/**
  * load cache file from engine path, if path is not valid, do nothing.
  * if the cache map does not contain the engine path, create a new one.
  * if the cache map already contains the engine path, update the cache.
@@ -344,7 +220,6 @@ export function update_engine_cache(engineDir: string): void {
 		engineCaches.set(engineDir, engineCache);
 	}
 }
-
 
 /**
  * get the word at the position of the line using regex

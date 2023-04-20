@@ -1,4 +1,3 @@
-
 import {
 	SemanticTokensLegend,
 	DocumentSemanticTokensProvider,
@@ -7,6 +6,8 @@ import {
 	CancellationToken,
 	SemanticTokens,
 	SemanticTokensBuilder,
+	Range,
+	OutputChannel,
 } from 'vscode';
 
 const tokenTypes = ['macro', 'keyword', 'enum', 'function', 'variable'];
@@ -108,7 +109,10 @@ const intrinsic_keywords = [
 
 const extra_keywords = [
 	"define",
+	"ifndef",
+	"ifdef",
 	"endif",
+	"elif",
 	"include",
 	"pragma",
 	"define-meta",
@@ -122,14 +126,23 @@ interface IParsedToken {
 	tokenModifiers: string[];
 }
 
+interface IProgramRange {
+	start: number;
+	end: number;
+}
+
 export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvider {
+	private _outputChannel: OutputChannel;
+	constructor(outputChannel: OutputChannel) {
+		this._outputChannel = outputChannel;
+	}
 	provideDocumentSemanticTokens(
 		document: TextDocument,
 		token: CancellationToken
 	): ProviderResult<SemanticTokens> {
-		const allTokens = this.parseTokens(document);
+		const allTokens = this.parse(document);
 		const tokensBuilder = new SemanticTokensBuilder(legend);
-
+		this._outputChannel.appendLine(`provideDocumentSemanticTokens: ${allTokens.length}`);
 		allTokens.forEach((token) => {
 			tokensBuilder.push(
 				token.line,
@@ -142,6 +155,16 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
 		return tokensBuilder.build();
 	}
 
+	private parse(document: TextDocument): IParsedToken[] {
+		const program_ranges = this.parsePrograms(document);
+		this._outputChannel.appendLine(`parsePrograms: ${program_ranges.length}`);
+		const allTokens: IParsedToken[] = [];
+		program_ranges.forEach((range) => {
+			allTokens.push(...this.parseTokens(document, range));
+		});
+		return allTokens;
+	}
+
 	private extractMacros(precompile: string): { word: string, index: number }[] {
 		const wordRegex = /(\w+)/g;
 		const res = [];
@@ -152,13 +175,40 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
 		return res;
 	}
 
-	private parseTokens(document: TextDocument): IParsedToken[] {
+	private parsePrograms(document: TextDocument): Range[] {
 		const text = document.getText();
+		// if the document contains `CCEffect` then it is a effect file, otherwise it is a chunk file
+		const isEffect = text.indexOf('CCEffect') !== -1;
+		if (isEffect) {
+			// the real program is inside the pattern of `CCProgram programname %{ ${glsl program} }%` I need to extract the program
+			const programRegex = /CCProgram\s+([\w-]+)\s+%{\s+([\s\S]+?)\s+}%/g;
+			const res = [];
+			let match: RegExpExecArray | null;
+			while ((match = programRegex.exec(text)) !== null) {
+				res.push(
+					new Range(
+						document.positionAt(match.index + match[0].length - match[2].length),
+						document.positionAt(match.index + match[0].length - 2))
+				);
+			}
+			return res;
+		} else {
+			return [
+				new Range(document.positionAt(0), document.positionAt(text.length))
+			];
+		}
+	}
+
+	private parseTokens(document: TextDocument, range: Range): IParsedToken[] {
+		const start = document.offsetAt(range.start);
+		this._outputChannel.appendLine(`parseTokensStart: ${start}`);
+		const text = document.getText(range);
+		this._outputChannel.append(`${text}`);
 		const res = [];
 		const functionRegex = /(\w+)\s*\(([^)]*)\)/g;
 		const precompileRegex = /^#(.*)$/gm;
 
-		let match;
+		let match: RegExpExecArray | null;
 		while ((match = functionRegex.exec(text)) !== null) {
 			if (intrinsic_keywords.includes(match[1])) {
 				continue;
@@ -169,8 +219,8 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
 			}
 			// TODO: should skip the comment
 			res.push({
-				line: document.positionAt(match.index).line,
-				startCharacter: document.positionAt(match.index).character,
+				line: document.positionAt(start + match.index).line,
+				startCharacter: document.positionAt(start + match.index).character,
 				length: match[1].length,
 				tokenType: tokenType,
 				tokenModifiers: [],
@@ -189,10 +239,11 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
 				let tokenType = 0;
 				if (extra_keywords.includes(macro.word)) {
 					tokenType = 1;
+					return;
 				}
 				res.push({
-					line: document.positionAt(match.index).line,
-					startCharacter: document.positionAt(match.index + macro.index + 1).character,
+					line: document.positionAt(start + match!.index).line,
+					startCharacter: document.positionAt(start + match!.index + macro.index + 1).character,
 					length: macro.word.length,
 					tokenType: tokenType,
 					tokenModifiers: [],

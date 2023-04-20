@@ -32,7 +32,10 @@ export class CocosEffectContext implements Disposable {
 
 		// Options to control the language client
 		const clientOptions: LanguageClientOptions = {
-			documentSelector: [{ scheme: 'file', language: 'cocos-program' }],
+			documentSelector: [
+				{ scheme: 'file', language: 'cocos-program' },
+				{ scheme: 'file', language: 'cocos-effect' }
+			],
 			synchronize: {
 				fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
 			},

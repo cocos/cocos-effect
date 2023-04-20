@@ -13,5 +13,5 @@ repository:
     patterns:
     - include: "source.glsl"
     program-keywords:
-      match: "define-meta|define-pattern|rate|pass|phase|include"
+      match: "define-meta|rate|pass|phase|include"
       name: "program-keywords"

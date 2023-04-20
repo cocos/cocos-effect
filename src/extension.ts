@@ -1,15 +1,9 @@
-/* --------------------------------------------------------------------------------------------
- * Copyright (c) Microsoft Corporation. All rights reserved.
- * Licensed under the MIT License. See License.txt in the project root for license information.
- * ------------------------------------------------------------------------------------------ */
-
 import {
 	ExtensionContext,
 	languages,
 	commands,
 	window,
 	workspace,
-	tasks,
 } from 'vscode';
 
 import {
@@ -17,37 +11,23 @@ import {
 } from './semantic';
 
 import {
-	execFile,
-} from 'child_process';
+	find_if_upwards,
+	is_engine_path,
+	is_project_path,
+	get_project_engine_dir,
+	compilerExecPath,
+} from './file-utils';
 
 import { CocosEffectContext } from './context';
 
 import * as fs from 'fs';
 import * as path from 'path';
 
-function is_engine_path(pth: string): boolean {
-	const currentDir = pth;
-	if (pth === '' || !fs.existsSync(pth) || !fs.statSync(pth).isDirectory()) {
-		return false;
-	}
-	const pkgJsonPath = path.join(currentDir, 'package.json');
-	if (fs.existsSync(pkgJsonPath)) {
-		const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-		if (pkgJson.name === 'cocos-creator') {
-			return true;
-		}
-	}
-	return false;
-}
-
 export async function activate(context: ExtensionContext) {
-
 	// query settings
 	const config = workspace.getConfiguration('cocos-effect');
 	const pth = config.get<string>('enginePath') || '';
-
 	const enginePath = is_engine_path(pth) ? pth : undefined;
-	const compiler_path = path.join(enginePath, 'native', 'external', 'win64', 'bin', 'effect-checker', 'effect-checker.exe');
 
 	const outputChannel = window.createOutputChannel('Cocos Effect');
 	context.subscriptions.push(outputChannel);
@@ -55,9 +35,10 @@ export async function activate(context: ExtensionContext) {
 	const cocosEffectContext = new CocosEffectContext();
 	context.subscriptions.push(cocosEffectContext);
 
-	languages.registerDocumentSemanticTokensProvider(selector, new CocosSemanticTokensProvider(), legend);
+	languages.registerDocumentSemanticTokensProvider({ language: 'cocos-effect' }, new CocosSemanticTokensProvider(outputChannel), legend);
+	languages.registerDocumentSemanticTokensProvider({ language: 'cocos-program' }, new CocosSemanticTokensProvider(outputChannel), legend);
 
-	const serverModule = context.asAbsolutePath(path.join('server', 'out', 'server.js'));
+	const serverModule = context.asAbsolutePath(path.join('out', 'server.js'));
 
 	context.subscriptions.push(
 		commands.registerCommand('CocosEffect.activateLSP', async () => { return; }),
@@ -71,6 +52,22 @@ export async function activate(context: ExtensionContext) {
 		commands.registerCommand('CocosEffect.compileEffect', async () => {
 			const editor = window.activeTextEditor;
 			if (editor) {
+				const document = editor.document.fileName;
+				if (document.endsWith('.effect') === false) {
+					window.showErrorMessage('Not a valid effect file!');
+					return;
+				}
+				const documentPath = path.dirname(document);
+				let engineDirectory = enginePath ? enginePath : '';
+				const engine = find_if_upwards(documentPath, is_engine_path);
+				const project = find_if_upwards(documentPath, is_project_path);
+				if (engine !== '') {
+					engineDirectory = engine;
+				}
+				if (project !== '') {
+					engineDirectory = find_if_upwards(get_project_engine_dir(project), is_engine_path);
+				}
+				const compiler_path = path.join(engineDirectory, compilerExecPath);
 				if (fs.existsSync(compiler_path)) {
 					const terminal = window.activeTerminal || window.createTerminal({ name: 'Cocos Effect', hideFromUser: true });
 					const document = editor.document;

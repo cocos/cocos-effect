@@ -2,10 +2,10 @@
 
 ## Features
 
-Provide syntax/semantics highlight support for Cocos Effect file in VS Code.
-Provide auto-completion support for Cocos Effect file in VS Code.
-Provide hover support for Cocos Effect file in VS Code.
-Provide Signature Help support for Cocos Effect file in VS Code.
+1. Provide syntax/semantics highlight support for Cocos Effect file in VS Code.
+2. Provide auto-completion support for Cocos Effect file in VS Code.
+3. Provide hover support for Cocos Effect file in VS Code.
+4. Provide Signature Help support for Cocos Effect file in VS Code.
 
 ## Requirements
 

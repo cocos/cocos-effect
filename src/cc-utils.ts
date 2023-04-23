@@ -159,12 +159,12 @@ export function load_cache_file(parsed: string): ParsedInfo {
                 completionItem.kind = CompletionItemKind.Keyword;
                 break;
             case 'macro':
-                completionItem.kind = CompletionItemKind.Keyword;
+                completionItem.detail = `Macro ${item.name}(${item.args.join(', ')})`;
                 res.Hovers.set(item.name, {
                     contents: [
                         {
                             language: 'c',
-                            value: `Macro ${item.name}`
+                            value: `Macro ${item.name}` + (item.args.length > 0 ? `(${item.args.join(', ')})` : '')
                         },
                         {
                             language: 'markdown',
@@ -176,6 +176,21 @@ export function load_cache_file(parsed: string): ParsedInfo {
                         }
                     ]
                 });
+                if (item.args > 0) {
+                    completionItem.detail = `${item.type} ${item.name}(${item.args.join(', ')})`;
+                    res.SignatureHelps.set(item.name,
+                        {
+                            signatures:
+                                [
+                                    {
+                                        label: `${item.type} ${item.name}(${item.args.join(', ')})`,
+                                        parameters: item.args.map((arg: string) => { return { label: arg, documentation: '' }; }),
+                                    },
+                                ],
+                            activeSignature: 0,
+                            activeParameter: 0,
+                        });
+                }
                 break;
             case 'variable':
                 completionItem.kind = CompletionItemKind.Variable;

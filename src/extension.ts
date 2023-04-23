@@ -71,7 +71,7 @@ export async function activate(context: ExtensionContext) {
                 if (fs.existsSync(compiler_path)) {
                     const terminal = window.activeTerminal || window.createTerminal({ name: 'Cocos Effect', hideFromUser: true });
                     const document = editor.document;
-                    terminal.sendText(`${compiler_path} 0 ${document.fileName} ${enginePath}`);
+                    terminal.sendText(`${compiler_path} 0 ${document.fileName} ${engineDirectory}`);
                     terminal.show();
                 }
             }

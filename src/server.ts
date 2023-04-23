@@ -155,7 +155,6 @@ connection.onInitialized(() => {
                         return;
                     }
                 });
-                // console.log(`initialize, default engine path is set to ${settings.enginePath}, ref count is ${cache?.refCount}`);
             } else if (is_cocos_creator_path(settings.enginePath)) {
                 DefaultEngineDirectory = get_creator_engine_path(settings.enginePath);
                 update_engine_cache(DefaultEngineDirectory);
@@ -167,9 +166,8 @@ connection.onInitialized(() => {
                         return;
                     }
                 });
-                // console.log(`initialize, default engine path is set to ${DefaultEngineDirectory}, ref count is ${cache?.refCount}`);
             } else {
-                console.log(`not a valid setting, ${settings.enginePath}`);
+                connection.window.showWarningMessage(`Not a valid engine path, ${settings.enginePath}`);
             }
         });
     }
@@ -184,7 +182,6 @@ documents.onDidOpen(e => {
         update_engine_cache(engineDir);
     }
     engineCaches.get(engineDir)?.ref();
-    // console.log(`open document ${textDocument.uri}, engine path is ${engineDir}, ref count is ${engineCaches.get(engineDir)?.refCount}`);
 
     const fileRelation = programs.get(textDocument.uri);
     if (fileRelation) {
@@ -218,10 +215,8 @@ documents.onDidClose(e => {
         const engineCache = engineCaches.get(cache.enginePath);
         if (engineCache) {
             engineCache.unref();
-            // console.log(`close document ${cache.enginePath} refcount: ${engineCache.refCount}`);
             if (engineCache.refCount === 0) {
                 engineCaches.delete(cache.enginePath);
-                // console.log(`engine cache ${cache.enginePath} is removed`);
             }
         }
         documentCaches.delete(e.document.uri);
@@ -229,10 +224,8 @@ documents.onDidClose(e => {
 });
 
 // documents.onDidChangeContent(change => {
-// 	// TODO: we need to check if the file is in the mapping
 // 	const document = change.document;
 // 	// TODO: we need to check if the changed position is a include statement or not
-// 	// update the parsed infos
 // });
 
 // documents.onDidSave(change => {

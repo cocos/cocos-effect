@@ -121,41 +121,99 @@ export function load_cache_file(parsed: string): ParsedInfo {
         const completionItem = CompletionItem.create(item.name);
         completionItem.documentation = item.comment || `Cocos-effect system built-in ${item.usage}.`;
         completionItem.detail = item.type;
-        res.Hovers.set(item.name, {
-            contents: [
-                {
-                    language: 'c',
-                    value: `${item.type} ${item.name}(${item.args.join(', ')})`
-                },
-                {
-                    language: 'markdown',
-                    value: `# comments \n${item.comment || `Cocos-effect system built-in ${item.usage}.`}`
-                },
-                {
-                    language: 'markdown',
-                    value: item.file ? `# defined in\n${item.file}: l${item.line}, c${item.column}` : '# intrinsic function'
-                }
-            ]
-        });
 
         switch (item.usage) {
             case 'function':
                 completionItem.detail = `${item.type} ${item.name}(${item.args.join(', ')})`;
                 completionItem.kind = CompletionItemKind.Function;
+                res.Hovers.set(item.name, {
+                    contents: [
+                        {
+                            language: 'c',
+                            value: `${item.type} ${item.name}(${item.args.join(', ')})`
+                        },
+                        {
+                            language: 'markdown',
+                            value: `# comments \n${item.comment || `Cocos-effect system built-in ${item.usage}.`}`
+                        },
+                        {
+                            language: 'markdown',
+                            value: item.file ? `# defined in\n${item.file}: l${item.line}, c${item.column}` : '# intrinsic function'
+                        }
+                    ]
+                });
+                res.SignatureHelps.set(item.name,
+                    {
+                        signatures:
+                            [
+                                {
+                                    label: `${item.type} ${item.name}(${item.args.join(', ')})`,
+                                    parameters: item.args.map((arg: string) => { return { label: arg, documentation: '' }; }),
+                                },
+                            ],
+                        activeSignature: 0,
+                        activeParameter: 0,
+                    });
                 break;
             case 'keyword':
                 completionItem.kind = CompletionItemKind.Keyword;
-                res.Hovers.delete(item.name);
                 break;
             case 'macro':
-                completionItem.kind = CompletionItemKind.Keyword;
+                completionItem.detail = `Macro ${item.name}(${item.args.join(', ')})`;
+                res.Hovers.set(item.name, {
+                    contents: [
+                        {
+                            language: 'c',
+                            value: `Macro ${item.name}` + (item.args.length > 0 ? `(${item.args.join(', ')})` : '')
+                        },
+                        {
+                            language: 'markdown',
+                            value: `# comments \n${item.comment || `Cocos-effect system built-in ${item.usage}.`}`
+                        },
+                        {
+                            language: 'markdown',
+                            value: item.file ? `# defined in\n${item.file}: l${item.line}, c${item.column}` : '# intrinsic macro'
+                        }
+                    ]
+                });
+                if (item.args > 0) {
+                    completionItem.detail = `${item.type} ${item.name}(${item.args.join(', ')})`;
+                    res.SignatureHelps.set(item.name,
+                        {
+                            signatures:
+                                [
+                                    {
+                                        label: `${item.type} ${item.name}(${item.args.join(', ')})`,
+                                        parameters: item.args.map((arg: string) => { return { label: arg, documentation: '' }; }),
+                                    },
+                                ],
+                            activeSignature: 0,
+                            activeParameter: 0,
+                        });
+                }
                 break;
             case 'variable':
                 completionItem.kind = CompletionItemKind.Variable;
+                completionItem.detail = `${item.type} ${item.name}${item.args.length > 0 ? `[${item.args[0]}]` : ''}`;
+                res.Hovers.set(item.name, {
+                    contents: [
+                        {
+                            language: 'c',
+                            value: `${item.type} ${item.name}${item.args.length > 0 ? `[${item.args[0]}]` : ''}`
+                        },
+                        {
+                            language: 'markdown',
+                            value: `# comments \n${item.comment || `Cocos-effect system built-in ${item.usage}.`}`
+                        },
+                        {
+                            language: 'markdown',
+                            value: item.file ? `# defined in\n${item.file}: l${item.line}, c${item.column}` : '# intrinsic variable'
+                        }
+                    ]
+                });
                 break;
             default:
                 completionItem.kind = CompletionItemKind.Text;
-                res.Hovers.delete(item.name);
                 break;
         }
         res.CompletionItems.push(completionItem);

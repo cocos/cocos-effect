@@ -8,3 +8,4 @@
 **/*.map
 node_modules/**
 samples/**
+images/**

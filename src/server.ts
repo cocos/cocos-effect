@@ -111,9 +111,12 @@ connection.onInitialize((params: InitializeParams) => {
     const result: InitializeResult = {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
-            completionProvider: {
-                resolveProvider: true
-            },
+            /**
+             * TODO: disabled temporarily
+             */
+            // completionProvider: {
+            //     resolveProvider: true
+            // },
             hoverProvider: true,
             signatureHelpProvider: {
                 triggerCharacters: ['(',]
@@ -237,9 +240,13 @@ documents.onDidClose(e => {
 // 	// 
 // });
 
-connection.onCompletion(completionProvider);
 
-connection.onCompletionResolve(completionResolver);
+/**
+ * TODO: disabled temporarily
+ * The following 2 lines are for completion, they are disabled to make the word based completion work again.
+ */
+// connection.onCompletion(completionProvider);
+// connection.onCompletionResolve(completionResolver);
 
 connection.onHover(hoverProvider);
 

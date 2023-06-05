@@ -237,9 +237,12 @@ documents.onDidClose(e => {
 // 	// 
 // });
 
-connection.onCompletion(completionProvider);
 
-connection.onCompletionResolve(completionResolver);
+/**
+ * The following 2 lines are for completion, they are disabled to make the word based completion work again.
+ */
+// connection.onCompletion(completionProvider);
+// connection.onCompletionResolve(completionResolver);
 
 connection.onHover(hoverProvider);
 

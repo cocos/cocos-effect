@@ -38,3 +38,7 @@ Finally we have a logo!
 ### 0.4.0
 
 Add semantic highlighter, language server.
+
+### 0.4.2
+
+Remove cocos completion provider, use default completion provider instead.

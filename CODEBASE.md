@@ -1,7 +1,7 @@
 # Cocos Effect 插件 — AI 开发文档
 
 > **工作流约定**：每次修改前先阅读本文件，修改完成后更新受影响的章节。  
-> 最后更新：2026-08-05 | 版本：0.5.0
+> 最后更新：2026-08-05 | 版本：0.5.1
 
 ---
 
@@ -133,8 +133,7 @@ cocos-effect/
 - 读取用户配置 `cocos-effect.enginePath`，设置 `DefaultEngineDirectory`
 - 注册两种语言的 `SemanticTokensProvider`（Client 端直接处理，不走 LSP）
 - 注册命令：`CocosEffect.restartLSP`、`CocosEffect.compileEffect`
-- 通过 `CocosEffectContext` 启动 Server
-
+- 通过 `CocosEffectContext` 启动 Server- 监听 Server 发出的 `cocos-effect/diagnosticsReady` 通知，在 OutputChannel 输出可点击错误链接
 **关键配置读取**：
 ```typescript
 const config = workspace.getConfiguration('cocos-effect');
@@ -168,22 +167,38 @@ definitionProvider:  true
 - `documents.onDidSave` → `validateDocument()`
 - `documents.onDidClose` → 清空诊断（避免 Problems 面板残留）
 
+**自定义通知**：
+- 常量 `DIAG_NOTIFICATION = 'cocos-effect/diagnosticsReady'`
+- `validateDocument` 完成后，若有诊断，发送此通知给 Client
+- 通知 payload：`{ uri, fsPath, diagnostics: [{ line, character, severity, message }] }`
+
+**诊断缓存**：
+- `diagnosticCache: Map<string, Diagnostic[]>` — 每次诊断后更新，供 `onHover` 查询
+- 文件关闭时不清除缓存（文件关闭就不会触发 hover，无副作用）
+
 **`validateDocument()` 逻辑**：
 ```typescript
 // 只处理 .effect 文件
 if (!uri.endsWith('.effect')) return;
 
-// 并行运行两套检查
-const engineDir = get_environment_path(document);
-const [checkerResult, yamlDiags] = await Promise.all([
-    runEffectChecker(fsPath, engineDir),
-    validateCCEffectYaml(document.getText()),
-]);
+const checkerResult = await runEffectChecker(fsPath, engineDir);
+const yamlDiags = validateCCEffectYaml(document.getText());
+const allDiags = [...checkerResult.diagnostics, ...yamlDiags];
 
-connection.sendDiagnostics({
-    uri,
-    diagnostics: [...checkerResult.diagnostics, ...yamlDiags],
-});
+connection.sendDiagnostics({ uri, diagnostics: allDiags });
+diagnosticCache.set(uri, allDiags);  // 供 hover 使用
+
+// 有诊断时发自定义通知给 Client
+if (allDiags.length > 0) {
+    connection.sendNotification(DIAG_NOTIFICATION, { uri, fsPath, diagnostics: ... });
+}
+```
+
+**`onHover` 逻辑（诊断优先）**：
+```typescript
+// 1. 查诊断缓存，按行号匹配
+// 2. 命中 → 返回 Markdown hover（Error/Warning 加粗标签 + 错误信息）
+// 3. 未命中 → fallback 到 hoverProvider(params)（引擎符号悬停）
 ```
 
 ---
@@ -359,16 +374,30 @@ CHUNKS_SUB_PATH = 'editor/assets/chunks'  // 注意无前导斜杠（与 chunkSu
 
 ## 6. 数据流
 
-### 6.1 打开 .effect 文件时
+### 6.1 打开 / 保存 .effect 文件时
 
 ```
-VSCode 打开文件
-  → documents.onDidOpen (server.ts)
+VSCode 打开或保存文件
+  → documents.onDidOpen / onDidSave (server.ts)
   → validateDocument(document)
     ├── get_environment_path(document)     → engineDir
     ├── runEffectChecker(path, engineDir)  → Diagnostic[]
-    └── validateCCEffectYaml(text)         → Diagnostic[]
-        → connection.sendDiagnostics(merged)
+    ├── validateCCEffectYaml(text)         → Diagnostic[]
+    ├── connection.sendDiagnostics(merged) → Problems 面板更新
+    ├── diagnosticCache.set(uri, merged)   → 供 hover 查询
+    └── [若有诊断] connection.sendNotification('cocos-effect/diagnosticsReady', payload)
+          → Client: outputChannel.appendLine('path:line:col: error: msg')
+          → Client: [有 error 时] outputChannel.show(preserveFocus=true)
+```
+
+### 6.1b 悬停报错行时
+
+```
+鼠标悬停在报错行
+  → connection.onHover (server.ts)
+  → 查 diagnosticCache.get(uri)
+    ├── [命中] 过滤当前行的诊断 → 返回 Markdown Hover（Error/Warning + 错误信息）
+    └── [未命中] fallback → hoverProvider(params)（引擎符号 hover）
 ```
 
 ### 6.2 触发补全时

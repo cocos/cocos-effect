@@ -47,6 +47,19 @@ import {
     enhancedCompletionProvider,
     completionResolver as enhancedCompletionResolver,
 } from './completion-provider';
+import {
+    Diagnostic,
+    DiagnosticSeverity,
+    TextDocumentPositionParams,
+    Hover,
+    MarkupKind,
+} from 'vscode-languageserver/node';
+
+/** 诊断结果推送给 Client OutputChannel 的自定义通知 */
+export const DIAG_NOTIFICATION = 'cocos-effect/diagnosticsReady';
+
+/** uri → 最近一次诊断列表（供 hover 查询） */
+const diagnosticCache = new Map<string, Diagnostic[]>();
 
 export let DefaultEngineDirectory = '';
 
@@ -268,7 +281,35 @@ documents.onDidSave(change => {
 connection.onCompletion(enhancedCompletionProvider);
 connection.onCompletionResolve(enhancedCompletionResolver);
 
-connection.onHover(hoverProvider);
+connection.onHover(async (params: TextDocumentPositionParams): Promise<Hover | null> => {
+    // 优先返回诊断 hover（错误/警告悬停提示）
+    const diags = diagnosticCache.get(params.textDocument.uri);
+    if (diags && diags.length > 0) {
+        const hoverLine = params.position.line;
+        const matched = diags.filter(d =>
+            hoverLine >= d.range.start.line && hoverLine <= d.range.end.line
+        );
+        if (matched.length > 0) {
+            const lines = matched.map(d => {
+                const icon = d.severity === DiagnosticSeverity.Error ? '$(error)' :
+                             d.severity === DiagnosticSeverity.Warning ? '$(warning)' : '$(info)';
+                const tag = d.severity === DiagnosticSeverity.Error ? '**Error**' :
+                            d.severity === DiagnosticSeverity.Warning ? '**Warning**' : 'Info';
+                return `${tag}: ${d.message}`;
+            });
+            const diagHover: Hover = {
+                contents: {
+                    kind: MarkupKind.Markdown,
+                    value: lines.join('\n\n---\n\n'),
+                },
+                range: matched[0].range,
+            };
+            return diagHover;
+        }
+    }
+    // 无诊断则 fallback 到引擎符号 hover（undefined 转为 null）
+    return hoverProvider(params) ?? null;
+});
 
 connection.onSignatureHelp(signatureHelpProvider);
 
@@ -303,6 +344,23 @@ async function validateDocument(textDocument: { uri: string }) {
 
     const allDiags = [...checkerResult.diagnostics, ...yamlDiags];
     connection.sendDiagnostics({ uri, diagnostics: allDiags });
+
+    // 缓存诊断供 hover 使用
+    diagnosticCache.set(uri, allDiags);
+
+    // 发送自定义通知给 Client，Client 在 OutputChannel 中输出可点击链接
+    if (allDiags.length > 0) {
+        connection.sendNotification(DIAG_NOTIFICATION, {
+            uri,
+            fsPath: fileFsPath,
+            diagnostics: allDiags.map(d => ({
+                line: d.range.start.line,        // 0-based
+                character: d.range.start.character,
+                severity: d.severity,
+                message: d.message,
+            })),
+        });
+    }
 }
 
 documents.listen(connection);

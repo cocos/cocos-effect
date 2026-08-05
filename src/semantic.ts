@@ -9,7 +9,7 @@ import {
     Range,
 } from 'vscode';
 
-const tokenTypes = ['macro', 'keyword', 'enum', 'function', 'variable'];
+const tokenTypes = ['macro', 'keyword', 'enum', 'function', 'variable', 'namespace'];
 const tokenModifiers = ['declaration', 'documentation'];
 export const legend = new SemanticTokensLegend(tokenTypes, tokenModifiers);
 export const selector = { language: 'cocos-program', scheme: 'file' };
@@ -168,15 +168,21 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
         // if the document contains `CCEffect` then it is a effect file, otherwise it is a chunk file
         const isEffect = text.indexOf('CCEffect') !== -1;
         if (isEffect) {
-            // the real program is inside the pattern of `CCProgram programname %{ ${glsl program} }%` I need to extract the program
-            const programRegex = /CCProgram\s+([\w-]+)\s+%{\s+([\s\S]+?)\s+}%/g;
+            // 匹配 CCProgram xxx %{ ... }%，精确定位 %{ 之后的换行作为块内容起点
+            const programRegex = /CCProgram\s+[\w-]+\s+%\{([^]*?)\}%/g;
             const res = [];
             let match: RegExpExecArray | null;
             while ((match = programRegex.exec(text)) !== null) {
+                // 找到 %{ 在整个匹配中的位置，块内容从 %{ 后的第一个换行开始
+                const headerEnd = match[0].indexOf('%{') + 2; // %{ 之后的字符位置（相对 match 起点）
+                const blockStart = match.index + headerEnd;   // 绝对偏移：紧跟在 %{ 后
+                // 块结束：}% 前，即 match.index + match[0].length - 2
+                const blockEnd = match.index + match[0].length - 2;
                 res.push(
                     new Range(
-                        document.positionAt(match.index + match[0].length - match[2].length),
-                        document.positionAt(match.index + match[0].length - 2))
+                        document.positionAt(blockStart),
+                        document.positionAt(blockEnd),
+                    )
                 );
             }
             return res;
@@ -192,7 +198,7 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
         const text = document.getText(range);
         const res = [];
         const functionRegex = /(\w+)\s*\(([^)]*)\)/g;
-        const precompileRegex = /^#(.*)$/gm;
+        const precompileRegex = /^([ \t]*)#(.*)$/gm;
 
         let match: RegExpExecArray | null;
         while ((match = functionRegex.exec(text)) !== null) {
@@ -212,9 +218,44 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
                 tokenModifiers: [],
             });
         }
+        /** 匹配 #include 行中尖括号或引号内的完整路径（支持缩进） */
+        const includePathRE = /^[ \t]*#include\s+[<"]([^>"]+)[>"]/;
+        /** namespace token 类型的 index（tokenTypes 数组第 5 位） */
+        const STRING_TOKEN = 5;
+
         while ((match = precompileRegex.exec(text)) !== null) {
-            // extract macros in the precompile
-            const macros = this.extractMacros(match[1]);
+            const indent = match[1];   // 缩进部分（可能为空）
+            const rawLine = match[0]; // 整行（含缩进和 #）
+
+            // --- 特殊处理 #include：路径作为单一 namespace token ---
+            const includeMatch = includePathRE.exec(rawLine);
+            if (includeMatch) {
+                // 找到路径在行内的起始位置（跳过缩进、#include、空白、< 或 "）
+                const openBracket = rawLine.indexOf('<');
+                const openQuote = rawLine.indexOf('"');
+                const openIdx = openBracket >= 0 && (openQuote < 0 || openBracket < openQuote)
+                    ? openBracket
+                    : openQuote;
+                if (openIdx >= 0) {
+                    const pathStart = openIdx + 1; // 跳过 < 或 "
+                    const absOffset = start + match.index + pathStart;
+                    const pos = document.positionAt(absOffset);
+                    res.push({
+                        line: pos.line,
+                        startCharacter: pos.character,
+                        length: includeMatch[1].length,
+                        tokenType: STRING_TOKEN,
+                        tokenModifiers: [],
+                    });
+                }
+                continue; // 不再对 #include 行做逐词处理
+            }
+
+            // --- 其他预编译行：逐词处理（原有逻辑）---
+            // match[2] 是 # 之后的内容，match[1] 是缩进
+            const afterHash = match[2];
+            const hashOffset = indent.length + 1; // # 在行内的偏移
+            const macros = this.extractMacros(afterHash);
             macros.forEach((macro) => {
                 if (intrinsic_keywords.includes(macro.word)) {
                     return;
@@ -229,7 +270,7 @@ export class CocosSemanticTokensProvider implements DocumentSemanticTokensProvid
                 }
                 res.push({
                     line: document.positionAt(start + match!.index).line,
-                    startCharacter: document.positionAt(start + match!.index + macro.index + 1).character,
+                    startCharacter: document.positionAt(start + match!.index + hashOffset + macro.index).character,
                     length: macro.word.length,
                     tokenType: tokenType,
                     tokenModifiers: [],

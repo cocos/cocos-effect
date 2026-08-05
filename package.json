@@ -1,9 +1,9 @@
 {
     "name": "cocos-effect",
     "displayName": "Cocos Effect",
-    "description": "Cocos effect file syntax support",
+    "description": "Cocos effect file syntax highlight, diagnostics, completion, go-to-definition",
     "publisher": "Yaji",
-    "version": "0.4.3",
+    "version": "0.5.0",
     "icon": "cocos.ico",
     "engines": {
         "vscode": "^1.32.0"
@@ -100,7 +100,7 @@
                 "cocos-effect.enginePath": {
                     "type": "string",
                     "default": "",
-                    "description": "Path to the default Engine (or Cocos Creator)"
+                    "description": "Cocos Creator 引擎根目录路径，用于诊断、补全、跳转定义等功能。支持两种格式：引擎源码目录（包含 editor/assets/chunks）或 Cocos Creator 安装目录。示例：D:\\Work\\cocos\\cocos4"
                 },
                 "cocos-effect.languageServer.maxNumberOfProblems": {
                     "scope": "resource",

@@ -7,7 +7,7 @@ import {
 } from 'vscode';
 
 import {
-    CocosSemanticTokensProvider, legend, selector,
+    CocosSemanticTokensProvider, legend, selector as semanticSelector,
 } from './semantic';
 
 import {

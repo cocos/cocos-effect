@@ -40,6 +40,14 @@ import {
     completionProvider,
 } from './cc-utils';
 
+import { definitionProvider } from './definition-provider';
+import { runEffectChecker } from './diagnostics/effect-checker-runner';
+import { validateCCEffectYaml } from './diagnostics/yaml-validator';
+import {
+    enhancedCompletionProvider,
+    completionResolver as enhancedCompletionResolver,
+} from './completion-provider';
+
 export let DefaultEngineDirectory = '';
 
 // Create a connection for the server, using Node's IPC as a transport.
@@ -114,10 +122,12 @@ connection.onInitialize((params: InitializeParams) => {
             /**
              * TODO: disabled temporarily
              */
-            // completionProvider: {
-            //     resolveProvider: true
-            // },
+            completionProvider: {
+                resolveProvider: true,
+                triggerCharacters: ['<', '"', '/', ':', ' '],
+            },
             hoverProvider: true,
+            definitionProvider: true,
             signatureHelpProvider: {
                 triggerCharacters: ['(',]
             },
@@ -192,6 +202,9 @@ documents.onDidOpen(e => {
         console.log('an file already opened');
     }
     programs.set(textDocument.uri, new ProgramRelations());
+
+    // 打开时触发诊断
+    validateDocument(textDocument);
 });
 
 // Only keep settings for open documents
@@ -224,6 +237,8 @@ documents.onDidClose(e => {
         }
         documentCaches.delete(e.document.uri);
     }
+    // 清空诊断
+    connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
 
 // documents.onDidChangeContent(change => {
@@ -236,6 +251,11 @@ documents.onDidClose(e => {
 // 	// unWindProgram(change.document.getText());
 // });
 
+// 保存时重新进行诊断
+documents.onDidSave(change => {
+    validateDocument(change.document);
+});
+
 // connection.onDidChangeWatchedFiles(_change => {
 // 	// 
 // });
@@ -245,12 +265,45 @@ documents.onDidClose(e => {
  * TODO: disabled temporarily
  * The following 2 lines are for completion, they are disabled to make the word based completion work again.
  */
-// connection.onCompletion(completionProvider);
-// connection.onCompletionResolve(completionResolver);
+connection.onCompletion(enhancedCompletionProvider);
+connection.onCompletionResolve(enhancedCompletionResolver);
 
 connection.onHover(hoverProvider);
 
 connection.onSignatureHelp(signatureHelpProvider);
+
+connection.onDefinition(definitionProvider);
+
+/**
+ * 对 .effect 文件调用 effect-checker 进行诊断，将结果推送到编辑器。
+ * .chunk 文件不单独执行，因为它们必须被包含到 .effect 中才能编译。
+ */
+async function validateDocument(textDocument: { uri: string }) {
+    const uri = textDocument.uri;
+    // 只处理 .effect 文件
+    if (!uri.endsWith('.effect')) {
+        return;
+    }
+
+    const cache = documentCaches.get(uri);
+    const engineDir = cache?.enginePath || DefaultEngineDirectory;
+
+    const { URI } = await import('vscode-uri');
+    const fileFsPath = URI.parse(uri).fsPath;
+
+    // Phase 1：effect-checker 编译诊断
+    const checkerResult = engineDir
+        ? await runEffectChecker(fileFsPath, engineDir)
+        : { diagnostics: [], raw: '', success: true };
+
+    // Phase 3：CCEffect YAML 字段静态诊断
+    // 获取文件内容（从 documents 缓存读取，避免磁盘 IO）
+    const doc = documents.get(uri);
+    const yamlDiags = doc ? validateCCEffectYaml(doc.getText()) : [];
+
+    const allDiags = [...checkerResult.diagnostics, ...yamlDiags];
+    connection.sendDiagnostics({ uri, diagnostics: allDiags });
+}
 
 documents.listen(connection);
 

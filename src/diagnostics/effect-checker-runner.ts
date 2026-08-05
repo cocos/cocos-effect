@@ -136,9 +136,11 @@ function parseOutput(raw: string, effectFilePath: string): Diagnostic[] {
             const glslLine  = firstMatch[5];
             const message   = firstMatch[6].trim();
 
+            // range 覆盖整行有效内容，让波浪线更醒目
+            // 2147483647 是 LSP uinteger 最大値，VSCode 会自动裁剪到实际行长度
             const range = Range.create(
                 Position.create(effectLine, effectCol),
-                Position.create(effectLine, effectCol + 1),
+                Position.create(effectLine, 2147483647),
             );
 
             const diag: Diagnostic = {
@@ -166,9 +168,9 @@ function parseOutput(raw: string, effectFilePath: string): Diagnostic[] {
                 // 追加到上一条诊断的消息里，作为补充信息
                 lastDiagnostic.message += `\n↳ (glsl:${glslLine}) ${message}`;
             } else {
-                // 没有上下文时，放在文件顶部
+                // 没有上下文时，放在文件顶部（整行标红）
                 const diag: Diagnostic = {
-                    range: Range.create(Position.create(0, 0), Position.create(0, 1)),
+                    range: Range.create(Position.create(0, 0), Position.create(0, 2147483647)),
                     severity,
                     source: 'effect-checker',
                     message: `(glsl:${glslLine}) ${message}`,

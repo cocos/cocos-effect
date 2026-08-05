@@ -161,10 +161,13 @@ function makeDiag(
     severity: DiagnosticSeverity = DiagnosticSeverity.Error,
     source = 'cceffect-yaml',
 ): Diagnostic {
+    // 若标记范围只有 1 个字符或更少，扩展到行尾，让波浪线更醒目
+    // 2147483647 是 LSP uinteger 最大値，VSCode 自动裁剪到实际行长度
+    const endCol = colEnd > colStart + 1 ? colEnd : 2147483647;
     return {
         range: Range.create(
             Position.create(lineNo, colStart),
-            Position.create(lineNo, colEnd),
+            Position.create(lineNo, endCol),
         ),
         severity,
         source,

@@ -40,6 +40,27 @@ import {
     completionProvider,
 } from './cc-utils';
 
+import { definitionProvider } from './definition-provider';
+import { runEffectChecker } from './diagnostics/effect-checker-runner';
+import { validateCCEffectYaml } from './diagnostics/yaml-validator';
+import {
+    enhancedCompletionProvider,
+    completionResolver as enhancedCompletionResolver,
+} from './completion-provider';
+import {
+    Diagnostic,
+    DiagnosticSeverity,
+    TextDocumentPositionParams,
+    Hover,
+    MarkupKind,
+} from 'vscode-languageserver/node';
+
+/** 诊断结果推送给 Client OutputChannel 的自定义通知 */
+export const DIAG_NOTIFICATION = 'cocos-effect/diagnosticsReady';
+
+/** uri → 最近一次诊断列表（供 hover 查询） */
+const diagnosticCache = new Map<string, Diagnostic[]>();
+
 export let DefaultEngineDirectory = '';
 
 // Create a connection for the server, using Node's IPC as a transport.
@@ -114,10 +135,12 @@ connection.onInitialize((params: InitializeParams) => {
             /**
              * TODO: disabled temporarily
              */
-            // completionProvider: {
-            //     resolveProvider: true
-            // },
+            completionProvider: {
+                resolveProvider: true,
+                triggerCharacters: ['<', '"', '/', ':', ' '],
+            },
             hoverProvider: true,
+            definitionProvider: true,
             signatureHelpProvider: {
                 triggerCharacters: ['(',]
             },
@@ -192,6 +215,9 @@ documents.onDidOpen(e => {
         console.log('an file already opened');
     }
     programs.set(textDocument.uri, new ProgramRelations());
+
+    // 打开时触发诊断
+    validateDocument(textDocument);
 });
 
 // Only keep settings for open documents
@@ -224,6 +250,8 @@ documents.onDidClose(e => {
         }
         documentCaches.delete(e.document.uri);
     }
+    // 清空诊断
+    connection.sendDiagnostics({ uri: e.document.uri, diagnostics: [] });
 });
 
 // documents.onDidChangeContent(change => {
@@ -236,6 +264,11 @@ documents.onDidClose(e => {
 // 	// unWindProgram(change.document.getText());
 // });
 
+// 保存时重新进行诊断
+documents.onDidSave(change => {
+    validateDocument(change.document);
+});
+
 // connection.onDidChangeWatchedFiles(_change => {
 // 	// 
 // });
@@ -245,12 +278,90 @@ documents.onDidClose(e => {
  * TODO: disabled temporarily
  * The following 2 lines are for completion, they are disabled to make the word based completion work again.
  */
-// connection.onCompletion(completionProvider);
-// connection.onCompletionResolve(completionResolver);
+connection.onCompletion(enhancedCompletionProvider);
+connection.onCompletionResolve(enhancedCompletionResolver);
 
-connection.onHover(hoverProvider);
+connection.onHover(async (params: TextDocumentPositionParams): Promise<Hover | null> => {
+    // 优先返回诊断 hover（错误/警告悬停提示）
+    const diags = diagnosticCache.get(params.textDocument.uri);
+    if (diags && diags.length > 0) {
+        const hoverLine = params.position.line;
+        const matched = diags.filter(d =>
+            hoverLine >= d.range.start.line && hoverLine <= d.range.end.line
+        );
+        if (matched.length > 0) {
+            const lines = matched.map(d => {
+                const icon = d.severity === DiagnosticSeverity.Error ? '$(error)' :
+                             d.severity === DiagnosticSeverity.Warning ? '$(warning)' : '$(info)';
+                const tag = d.severity === DiagnosticSeverity.Error ? '**Error**' :
+                            d.severity === DiagnosticSeverity.Warning ? '**Warning**' : 'Info';
+                return `${tag}: ${d.message}`;
+            });
+            const diagHover: Hover = {
+                contents: {
+                    kind: MarkupKind.Markdown,
+                    value: lines.join('\n\n---\n\n'),
+                },
+                range: matched[0].range,
+            };
+            return diagHover;
+        }
+    }
+    // 无诊断则 fallback 到引擎符号 hover（undefined 转为 null）
+    return hoverProvider(params) ?? null;
+});
 
 connection.onSignatureHelp(signatureHelpProvider);
+
+connection.onDefinition(definitionProvider);
+
+/**
+ * 对 .effect 文件调用 effect-checker 进行诊断，将结果推送到编辑器。
+ * .chunk 文件不单独执行，因为它们必须被包含到 .effect 中才能编译。
+ */
+async function validateDocument(textDocument: { uri: string }) {
+    const uri = textDocument.uri;
+    // 只处理 .effect 文件
+    if (!uri.endsWith('.effect')) {
+        return;
+    }
+
+    const cache = documentCaches.get(uri);
+    const engineDir = cache?.enginePath || DefaultEngineDirectory;
+
+    const { URI } = await import('vscode-uri');
+    const fileFsPath = URI.parse(uri).fsPath;
+
+    // Phase 1：effect-checker 编译诊断
+    const checkerResult = engineDir
+        ? await runEffectChecker(fileFsPath, engineDir)
+        : { diagnostics: [], raw: '', success: true };
+
+    // Phase 3：CCEffect YAML 字段静态诊断
+    // 获取文件内容（从 documents 缓存读取，避免磁盘 IO）
+    const doc = documents.get(uri);
+    const yamlDiags = doc ? validateCCEffectYaml(doc.getText()) : [];
+
+    const allDiags = [...checkerResult.diagnostics, ...yamlDiags];
+    connection.sendDiagnostics({ uri, diagnostics: allDiags });
+
+    // 缓存诊断供 hover 使用
+    diagnosticCache.set(uri, allDiags);
+
+    // 发送自定义通知给 Client，Client 在 OutputChannel 中输出可点击链接
+    if (allDiags.length > 0) {
+        connection.sendNotification(DIAG_NOTIFICATION, {
+            uri,
+            fsPath: fileFsPath,
+            diagnostics: allDiags.map(d => ({
+                line: d.range.start.line,        // 0-based
+                character: d.range.start.character,
+                severity: d.severity,
+                message: d.message,
+            })),
+        });
+    }
+}
 
 documents.listen(connection);
 

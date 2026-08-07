@@ -4,10 +4,25 @@ import {
     commands,
     window,
     workspace,
+    DiagnosticSeverity,
 } from 'vscode';
 
+/** Server 端发送的自定义通知名，与 server.ts 中 DIAG_NOTIFICATION 保持一致 */
+const DIAG_NOTIFICATION = 'cocos-effect/diagnosticsReady';
+
+interface DiagNotificationParams {
+    uri: string;
+    fsPath: string;
+    diagnostics: Array<{
+        line: number;       // 0-based
+        character: number;
+        severity: number | undefined;  // DiagnosticSeverity
+        message: string;
+    }>;
+}
+
 import {
-    CocosSemanticTokensProvider, legend, selector,
+    CocosSemanticTokensProvider, legend, selector as semanticSelector,
 } from './semantic';
 
 import {
@@ -79,4 +94,30 @@ export async function activate(context: ExtensionContext) {
     );
 
     await cocosEffectContext.activate(serverModule, outputChannel);
+
+    // Client 就绪后，监听 Server 推送的诊断通知，在 OutputChannel 中输出可点击链接
+    cocosEffectContext.client.onReady().then(() => {
+        cocosEffectContext.client.onNotification(DIAG_NOTIFICATION, (params: DiagNotificationParams) => {
+            const { fsPath, diagnostics } = params;
+
+            outputChannel.appendLine('');
+            outputChannel.appendLine(`[Cocos Effect] ${fsPath}`);
+
+            for (const d of diagnostics) {
+                // VSCode OutputChannel 识别 "file:line:col: message" 为可点击链接
+                // 格式：绝对路径:行号:列号: 错误信息（行列均为 1-based）
+                const line1 = d.line + 1;
+                const col1 = d.character + 1;
+                const tag = d.severity === 1 ? 'error' :
+                            d.severity === 2 ? 'warning' : 'info';
+                outputChannel.appendLine(`  ${fsPath}:${line1}:${col1}: ${tag}: ${d.message}`);
+            }
+
+            // 有错误时自动显示 OutputChannel 面板（不 focus，不打断编辑）
+            const hasError = diagnostics.some(d => d.severity === 1);
+            if (hasError) {
+                outputChannel.show(true /* preserveFocus */);
+            }
+        });
+    });
 }

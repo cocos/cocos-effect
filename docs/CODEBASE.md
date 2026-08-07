@@ -1,7 +1,7 @@
 # Cocos Effect 插件 — AI 开发文档
 
 > **工作流约定**：每次修改前先阅读本文件，修改完成后更新受影响的章节。  
-> 最后更新：2026-08-05 | 版本：0.5.1
+> 最后更新：2026-08-07 | 版本：0.5.0
 
 ---
 
@@ -25,7 +25,7 @@
 |---|---|
 | 插件名 | Cocos Effect |
 | Publisher | Yaji |
-| 版本 | 0.5.0 |
+| 版本 | 0.5.0 |  <!-- 与 package.json 保持一致 -->
 | 入口文件 | `out/extension.js`（webpack 构建产物） |
 | 语言服务器 | `out/server.js` |
 | 工作目录 | `D:\Work\cocos-effect` |
@@ -158,7 +158,7 @@ const enginePath = is_engine_path(pth) ? pth : undefined;
 textDocumentSync:    Incremental
 completionProvider:  { resolveProvider: true, triggerCharacters: ['<', '"', '/', ':', ' '] }
 hoverProvider:       true
-signatureHelpProvider: { triggerCharacters: ['(', ','] }
+signatureHelpProvider: { triggerCharacters: ['('] }
 definitionProvider:  true
 ```
 
@@ -218,6 +218,17 @@ if (allDiags.length > 0) {
 2. 从文档路径向上找 `is_engine_path()`（`package.json` 中 `name === 'cocos-creator'`）
 3. 从文档路径向上找 `is_project_path()`（含 `temp/declarations/cc.d.ts`），再通过 `get_project_engine_dir()` 获取引擎路径
 
+**导出函数**：
+
+| 函数 | 签名 | 说明 |
+|---|---|---|
+| `find_if_upwards` | `(pth, operation)` | 递归向上搜索 |
+| `is_engine_path` | `(pth)` | 检查 package.json 中 name === 'cocos-creator' |
+| `is_cocos_creator_path` | `(pth)` | 检查 Cocos Creator 应用路径 |
+| `is_project_path` | `(pth)` | 检查 temp/declarations/cc.d.ts |
+| `get_project_engine_dir` | `(projectRoot)` | 读 cc.d.ts 中的 reference path |
+| `get_creator_engine_path` | `(creatorPath)` | 从 Creator 安装目录获取引擎路径 |
+
 **支持的引擎路径格式**：
 - 引擎源码根目录（`package.json.name === 'cocos-creator'`）
 - Cocos Creator 安装目录（子路径 `resources/resources/3d/engine` 或 macOS 的 `Contents/Resources/...`）
@@ -231,16 +242,18 @@ if (allDiags.length > 0) {
 | 函数 | 签名 | 说明 |
 |---|---|---|
 | `findAllIncludes` | `(text: string) → IncludeInfo[]` | 扫描文本所有 #include，返回位置信息 |
-| `resolveIncludePath` | `(includePath, currentFile, engineDir) → string \| null` | include 路径 → 绝对文件路径 |
+| `resolveIncludePath` | `(includePath, currentFile, engineChunksDir) → string \| undefined` | include 路径 → 绝对文件路径 |
 | `getIncludeAtPosition` | `(text, line, character) → IncludeInfo \| null` | 光标位置 → 当前行的 include 信息 |
 | `getEngineChuinksDir` | `(engineDir) → string` | 返回 `<engineDir>/editor/assets/chunks` |
 
 > ⚠️ **拼写陷阱**：函数名为 `getEngineChuinksDir`（含 typo "Chuinks"）。  
 > 其他模块 import 时用别名修正：`import { getEngineChuinksDir as getEngineChunksDir }`
 
-**解析顺序**：
+**解析顺序**（4 个候选路径，先到先得）：
 1. 当前文件目录 + `includePath` + `.chunk`
-2. `<engineDir>/editor/assets/chunks/` + `includePath` + `.chunk`
+2. 当前文件目录 + `includePath`（无后缀，适用于路径已含后缀的情况）
+3. `<engineDir>/editor/assets/chunks/` + `includePath` + `.chunk`
+4. `<engineDir>/editor/assets/chunks/` + `includePath`（无后缀）
 
 ---
 
@@ -280,8 +293,15 @@ class EngineCache {
     Hovers: Map<string, Hover>;
 }
 
-const engineCaches: Map<string, EngineCache> = new Map();  // key = enginePath
-const documentCaches: Map<string, DocumentCache> = new Map(); // key = document URI
+class ProgramRelations {
+    dependsOn: string[];       // 当前文件依赖的文件路径
+    dependOnBy: string[];      // 依赖当前文件的文件路径
+}
+
+const engineCaches: Map<string, EngineCache> = new Map();      // key = enginePath
+const documentCaches: Map<string, DocumentCache> = new Map();   // key = document URI
+const programs: Map<string, ProgramRelations> = new Map();      // 文件间依赖关系
+const unwindedPrograms: Map<string, string> = new Map();        // 缓存的展开程序文本
 ```
 
 **`update_engine_cache(enginePath)`**：解析 `<engineDir>/editor/assets/tools/parsed-effect-info.json`，填充 `CompletionItems` / `SignatureHelps` / `Hovers`。
@@ -342,11 +362,16 @@ effect-checker.exe 0 <effectFilePath> <engineRootDir>
 | `stencilFailOp*` 等 | `STENCIL_OP`（8 项） |
 | `cullMode` | `CULL_MODE`（3 项） |
 | `polygonMode` | `POLYGON_MODE`（3 项） |
+| `primitive` | `PRIMITIVE_MODE`（13 项） |
+| `shadeModel` | `SHADE_MODEL`（2 项：`gourand`, `flat`） |
 
 **pass 必填字段**：`vert`、`frag`（或有 `propertyIndex` 则豁免）
 
-**pass 合法字段集 `PASS_KNOWN_KEYS`**（15 项）：
-`vert, frag, phase, pass, propertyIndex, priority, primitive, stage, embeddedMacros, rasterizerState, depthStencilState, blendState, properties, migrations, dynamics`
+**pass 合法字段集 `PASS_KNOWN_KEYS`**（17 项）：
+`vert, frag, phase, pass, propertyIndex, priority, primitive, stage, embeddedMacros, rasterizerState, depthStencilState, blendState, properties, migrations, dynamics, shader, device`
+
+**technique 合法字段集 `TECHNIQUE_KNOWN_KEYS`**（2 项）：
+`name, passes`
 
 ---
 
